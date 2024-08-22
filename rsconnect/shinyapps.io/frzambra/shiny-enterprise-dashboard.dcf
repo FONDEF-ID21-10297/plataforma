@@ -1,0 +1,10 @@
+name: shiny-enterprise-dashboard
+title:
+username: frzambra
+account: frzambra
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12503444
+bundleId: 9016710
+url: https://frzambra.shinyapps.io/shiny-enterprise-dashboard/
+version: 1

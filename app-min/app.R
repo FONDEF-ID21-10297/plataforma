@@ -1,6 +1,3 @@
-# Rhino / shinyApp entrypoint. Do not edit.
-# rhino::app()
-
 library(shiny)
 library(bslib)
 
@@ -25,8 +22,7 @@ sf_le |> count(sector)
 # plot(sf_le$geom)
 # plot(sf_le)
 
-files <- dir_ls(here::here('data/potencial_predict'), regexp = 'rio_claro.*tif$') |> 
-  sample(10)
+files <- dir_ls(here::here('data/potencial_predict'), regexp = 'rio_claro.*tif$') 
 
 potencial <- rast(files)
 
@@ -122,11 +118,11 @@ server <- function(input, output, session) {
       addTiles() |>
       addRasterImage(r, colors = pal, opacity = 0.8, group = "raster") |>
       addLegend(pal = pal, values = values(r), title = "Potencial", group = "raster")
-    
+
   })
   
   observeEvent(input$fecha, {
-    
+  
     print(input$fecha)
     
     cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha}"))

@@ -5,8 +5,12 @@ library(tidyverse)
 library(fs)
 
 st_layers('data/vectorial/rio_claro.gpkg')
+
 sf_le <- read_sf('data/vectorial/rio_claro.gpkg',layer = 'sectores_rio_claro') |> 
   st_transform(32719)
+
+plot(sf_le)
+
 plot(sf_le$geom)
 
 files <- dir_ls('data/potencial_predict',regexp = 'rio_claro.*tif$')
@@ -23,6 +27,9 @@ data |>
   geom_point(size=.1) + 
   geom_line(lwd = .1) +
   theme_bw()
+
+data |> count(ID)
+
 
 #mapear en leaflet
 

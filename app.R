@@ -1,6 +1,6 @@
+# global ------------------------------------------------------------------
 # Rhino / shinyApp entrypoint. Do not edit.
 # rhino::app()
-
 library(shiny)
 library(bslib)
 
@@ -10,54 +10,78 @@ library(terra)
 library(sf)
 library(fs)
 
-
-# st_layers('data/vectorial/rio_claro.gpkg')
-# st_layers('data/vectorial/la_esperanza.gpkg')
-
-sf_le <- read_sf(here::here('data/vectorial/rio_claro.gpkg'), layer = 'sectores_rio_claro') |>
-  st_transform(32719)
-
-sf_le
-sf_le |> count(equipo)
-sf_le |> count(sector)
+# helpers -----------------------------------------------------------------
+fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01"))){
+  
+  # si es ene-jun la temporada es la anterior
+  temp <- year(x) + if_else(month(x) <= 6, -1, 0)
+  
+}
 
 
-# plot(sf_le$geom)
-# plot(sf_le)
+# data --------------------------------------------------------------------
+huertos_gpks <- fs::dir_ls("data/vectorial/")
+huertos_gpks
 
-files <- dir_ls(here::here('data/potencial_predict'), regexp = 'rio_claro.*tif$') |> 
-  sample(10)
-
-potencial <- rast(files)
-
-#variación temporal del potencial en los sectores de riego
-data <- terra::extract(potencial, sf_le, fun = mean)
-
-datal <- data |>
-  pivot_longer(-ID) |>
-  mutate(date = ymd(name))
-
-ggplot(datal, aes(date, value, color = ID)) +
-  geom_point(size = .1) +
-  geom_line(lwd = .1) +
-  theme_bw()
-
-r <- potencial[[1]]
-pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(r), na.color = "transparent")
-
-leaflet()  |>
-  addTiles() |>
-  addRasterImage(r, colors = pal, opacity = 0.8) |>
-  addLegend(pal = pal,
-            values = values(r),
-            title = "Potencial")
-
-
+walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
+  
+  huerto <- tools::file_path_sans_ext(basename(huerto_gpk))
+  
+  cli::cli_h2("Huerto {huerto}")
+  
+  fout <- str_glue("data/potencial_dataframe/{huerto}.rds")
+  
+  if(file.exists(fout)) return(TRUE)
+  
+  cli::cli_inform("Leer gpk: {huerto_gpk}")
+  
+  huerto_sf <- read_sf(huerto_gpk, layer = 'sectores_riego') |>
+    st_transform(32719)
+  
+  cli::cli_inform("Leer rasters: {huerto_gpk}")
+  
+  tif_files <- dir_ls("data/potencial_predict/") |> 
+    str_subset(huerto)
+  
+  potencial <- rast(tif_files)
+  
+  cli::cli_inform("Variación temporal del potencial: {huerto_gpk}")
+  
+  #variación temporal del potencial en los sectores de riego
+  data <- terra::extract(potencial, huerto_sf, fun = mean)
+  data <- data |> 
+    as_tibble() |> 
+    pivot_longer(-ID, names_to = "fecha", values_to = "potencial") |>
+    mutate(fecha = ymd(fecha))
+  
+  data |> 
+    mutate(month(fecha))
+  data |> 
+    mutate(temporada = if_else(month <))
+  
+  
+  saveRDS(data, fout)
+  
+})
 
 # theme -------------------------------------------------------------------
 theme_app <- bs_theme()
 
 # sidebar -----------------------------------------------------------------
+opts_huertos <- huertos_gpks |>
+  basename() |> 
+  tools::file_path_sans_ext()
+
+opts_huertos_names <- opts_huertos |> 
+  str_replace_all("_", " ") |> 
+  str_to_title()
+
+opts_huertos <- set_names(opts_huertos, opts_huertos_names)
+
+readRDS("data/potencial_dataframe/la_esperanza.rds") |> 
+  ggplot(aes(fecha, potencial)) +
+  geom_point()
+
 opt_fechas <- datal |> 
   distinct(date) |> 
   arrange(date) |> 

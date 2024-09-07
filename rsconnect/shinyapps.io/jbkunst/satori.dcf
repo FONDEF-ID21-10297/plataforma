@@ -1,0 +1,13 @@
+name: satori
+title: plataforma
+username: jbkunst
+account: jbkunst
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12633569
+bundleId: 9071953
+url: https://jbkunst.shinyapps.io/satori/
+version: 1
+asMultiple: FALSE
+asStatic: FALSE
+ignoredFiles: .Rprofile|app-min/app.R|config.yml|dependencies.R|README.md|renv.lock|rhino.yml|scripts/01_ejemplo_time-series_and_raster.R|app

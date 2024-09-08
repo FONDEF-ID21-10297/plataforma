@@ -2,6 +2,7 @@
 # Rhino / shinyApp entrypoint. Do not edit.
 # rhino::app()
 library(shiny)
+library(shinyWidgets)
 library(bslib)
 
 library(tidyverse)
@@ -11,10 +12,13 @@ library(sf)
 library(fs)
 
 # helpers -----------------------------------------------------------------
-fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01"))){
+fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01", "2022-01-01"))){
   
   # si es ene-jun la temporada es la anterior
-  temp <- year(x) + if_else(month(x) <= 6, -1, 0)
+  temp1 <-  year(x) + if_else(month(x) <= 6, -1, 0)
+  temp2 <- as.numeric(format(x, "%y")) + if_else(month(x) <= 6, -1, 0)
+  temporada <- str_glue("{temp1}-{temp2+1}")
+  temporada
   
 }
 
@@ -45,6 +49,8 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   
   potencial <- rast(tif_files)
   
+  saveRDS(potencial, str_glue("data/raster_rds/{huerto}.rds"))
+  
   cli::cli_inform("Variación temporal del potencial: {huerto_gpk}")
   
   #variación temporal del potencial en los sectores de riego
@@ -52,13 +58,11 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   data <- data |> 
     as_tibble() |> 
     pivot_longer(-ID, names_to = "fecha", values_to = "potencial") |>
-    mutate(fecha = ymd(fecha))
+    mutate(fecha = ymd(fecha)) |> 
+    rename(id = ID)
   
-  data |> 
-    mutate(month(fecha))
-  data |> 
-    mutate(temporada = if_else(month <))
-  
+  data <- data |> 
+    mutate(temporada = fecha_a_temporada(fecha))
   
   saveRDS(data, fout)
   
@@ -78,24 +82,21 @@ opts_huertos_names <- opts_huertos |>
 
 opts_huertos <- set_names(opts_huertos, opts_huertos_names)
 
-readRDS("data/potencial_dataframe/la_esperanza.rds") |> 
-  ggplot(aes(fecha, potencial)) +
-  geom_point()
+opts_temporada <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds")) |> 
+  distinct(temporada) |> 
+  pull()
 
-opt_fechas <- datal |> 
-  distinct(date) |> 
-  arrange(date) |> 
-  mutate(id = row_number(), .before = 1) |> 
-  pull(date)
+opts_fecha <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds")) |> 
+  filter(temporada == max(temporada)) |> 
+  distinct(fecha) |> 
+  pull()
+
 
 sidebar_app <- sidebar(
-  # sector:
-  # rio claro / esperanza
-  selectizeInput("fecha", label = "Fecha", choices = opt_fechas, selected = max(opt_fechas))
-  # opciones para mostrar unidades o no
-  
+  selectizeInput("huerto", label = "Huerto", choices = opts_huertos),
+  selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
+  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 4 * 7)[1], tail(opts_fecha, 1)))
 )
-
 
 # ui ----------------------------------------------------------------------
 x <- value_box(
@@ -105,13 +106,12 @@ x <- value_box(
   theme_color = "light"
 )
 
-
 ui <- bslib::page_navbar(
-  title = "Plataforma",
+  title = "SATORI",
   theme = theme_app,
   sidebar = sidebar_app,
   nav_panel(
-    title = "",
+    title = "Panel",
     layout_columns(
       col_widths = c(8, 4),
       card(
@@ -126,47 +126,123 @@ ui <- bslib::page_navbar(
         x
       )
     )
+  ),
+  nav_panel(
+    title = "Acerca de la Aplicación",
   )
 )
 
 
 # server ------------------------------------------------------------------
-# input <- list(fecha = sample(opt_fechas, 1))
+# input <- list(huerto = "la_esperanza", temporada = "2022-23", fecha = c("2024-04-15", "2024-04-28"))
 
 server <- function(input, output, session) {
   
+  data_list <- reactive({
+    data_sf <- read_sf(str_glue("data/vectorial/{input$huerto}.gpkg"), layer = 'sectores_riego') |>
+      st_transform(32719)
+    
+    data_potencial <- read_rds(str_glue("data/potencial_dataframe/{input$huerto}.rds"))
+    
+    data_raster <- read_rds(str_glue("data/raster_rds/{input$huerto}.rds")) |> 
+      terra::unwrap()
+    
+    data_list <- list(sf = data_sf, pt = data_potencial, rt = data_raster)
+    data_list
+  })
+  
   output$mapa <- renderLeaflet({
-    
+
     # grafico ultimo valor
-    r <- potencial[[length(opt_fechas)]]
-    
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(r), na.color = "transparent")
+    # r <- potencial[[length(opt_fechas)]]
+
+    # pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(r), na.color = "transparent")
+
+    data_list <- data_list()
+    data_sf_map <- data_list$sf |> 
+      st_transform("+init=epsg:4326")
     
     leaflet()  |>
       addTiles() |>
-      addRasterImage(r, colors = pal, opacity = 0.8, group = "raster") |>
-      addLegend(pal = pal, values = values(r), title = "Potencial", group = "raster")
-    
+      leaflet::addPolygons(
+        group = "layer",
+        data = data_sf_map
+      ) |> 
+      identity()
+
   })
-  
+   
   observeEvent(input$fecha, {
-    
+
     print(input$fecha)
+
+    cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha[2]}"))
+
+    data_list <- data_list()
     
-    cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha}"))
+    data_sf <- data_list$sf
+    data_pt <- data_list$pt
+    data_rt <- data_list$rt
     
-    idfecha <- which(opt_fechas == input$fecha)
+    data_sf_map <- left_join(
+      data_sf,
+      data_pt |>filter(fecha == input$fecha[2]),
+      by = join_by(id)
+      ) |> 
+      st_transform("+init=epsg:4326")
     
-    r <- potencial[[idfecha]]
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(r), na.color = "transparent")
+    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    
+    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
+    
     
     leafletProxy("mapa") |>
       # leaflet() |> addTiles() |>
-      clearGroup(group = "raster") |>
+      clearGroup(group = "layer") |>
       clearControls() |> # remueve la Legenda
-      addRasterImage(r, colors = pal, opacity = 0.8, group = "raster") |>
-      addLegend(pal = pal, values = values(r), title = "Potencial") |>
-      identity()
+      addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |>
+      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |>
+      leaflet::addPolygons(
+        group = "layer",
+        data = data_sf_map,
+        fillColor        = ~ pal(potencial),
+        weight           = .5,
+        dashArray        = "3",
+        stroke           = NULL,
+        fillOpacity      = 0.7,
+        layerId          = ~ id,
+        # popup            = popp,
+        # label            = lb,
+        # highlightOptions = highlightOptions(
+        #   color        = "white",
+        #   weight       = 2,
+        #   fillColor    = parametros$color,
+        #   bringToFront = TRUE
+        # ),
+        # labelOptions = labelOptions(
+        #   style = list(
+        #     "font-family"  = parametros$font_family,
+        #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
+        #     "font-size"    = "15px",
+        #     "padding"      = "15px",
+        #     "border-color" = "rgba(0,0,0,0.15)"
+        #   )
+        # )
+      ) |>
+      # addLegend(
+      #   position  = "topright",
+      #   na.label  = "No disponible",
+      #   pal       = pal,
+      #   values    = colorData,
+      #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
+      #   layerId   = "colorLegend",
+      #   title     = dparvar |>
+      #     filter(variable == input$variable) |>
+      #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
+      #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
+      # ) |> 
+    identity()
+    
     
   })
   

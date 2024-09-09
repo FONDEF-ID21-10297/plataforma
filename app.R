@@ -69,7 +69,29 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
 })
 
 # theme -------------------------------------------------------------------
-theme_app <- bs_theme()
+colors_app <- c("#d01407", "#31683f", "#064aac")
+theme_app <- bs_theme(
+  # primary ="#31683f",
+  fg = "#454545",
+  bg = "white",
+  base_font = font_google("Roboto"),
+  # `navbar-light-contrast` =
+  # "navbar-bg" = "green",                    # works
+  # "navbar-brand-color" = "red !important",  # does not work!!!
+  # "navbar-brand-hover-color" = "salmon !important", # does not work!!!
+  # "navbar-active-color" = "gray !important", # does not work!!!
+  # "nav-text-color" = "blue !important",
+  "nav-link-color" = "#31683f",   # works
+  # "nav-link-hover-color" = "orange !important", # works
+  ) |>
+  bs_add_rules(
+    # "body { background-color: $body-bg; }"
+    # sass::sass_file("www/mdb.min.css")
+    sass::as_sass(readLines("www/mdb.min.css"))
+    ) |> 
+  bs_add_variables(
+    "--bs-primary" = "#31683f"
+  )
 
 # sidebar -----------------------------------------------------------------
 opts_huertos <- huertos_gpks |>
@@ -91,27 +113,38 @@ opts_fecha <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds"
   distinct(fecha) |> 
   pull()
 
-
 sidebar_app <- sidebar(
   selectizeInput("huerto", label = "Huerto", choices = opts_huertos),
   selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
-  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 4 * 7)[1], tail(opts_fecha, 1)))
-)
+  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 4 * 7)[1], tail(opts_fecha, 1))),
+  radioGroupButtons(
+    inputId = "layer", label = "Layer", choices = c("Shape" = "shape", "Raster" = "raster"),
+    justified = TRUE,
+    size = "sm"
+    )
+  )
 
 # ui ----------------------------------------------------------------------
 x <- value_box(
   title = "Contenido",
   value = "123",
   showcase = bsicons::bs_icon("globe-americas"),
-  theme_color = "light"
+  # theme_color = "light"
 )
 
 ui <- bslib::page_navbar(
-  title = "SATORI",
+  title =  tags$img(src = "logo1.png", height = "30px", style = "margin-top: -5px"),
+  window_title = "SATORI",
   theme = theme_app,
   sidebar = sidebar_app,
   nav_panel(
     title = "Panel",
+    tags$head(
+      tags$link(href = "favicon.png", rel = "icon"),
+      # tags$script(src = "https://www.googletagmanager.com/gtag/js?id=G-CYG993XQRT", async = ""),
+      # tags$script(src = "js/ga.js"),
+      # includeCSS("www/css/styles.css"),
+    ),
     layout_columns(
       col_widths = c(8, 4),
       card(
@@ -137,8 +170,10 @@ ui <- bslib::page_navbar(
 # input <- list(huerto = "la_esperanza", temporada = "2022-23", fecha = c("2024-04-15", "2024-04-28"))
 
 server <- function(input, output, session) {
-  
+
   data_list <- reactive({
+
+    # datas
     data_sf <- read_sf(str_glue("data/vectorial/{input$huerto}.gpkg"), layer = 'sectores_riego') |>
       st_transform(32719)
     
@@ -147,32 +182,95 @@ server <- function(input, output, session) {
     data_raster <- read_rds(str_glue("data/raster_rds/{input$huerto}.rds")) |> 
       terra::unwrap()
     
+    # previo a enviar datos actualizar select: temporada y fecha 
+    
+    
+    # 
     data_list <- list(sf = data_sf, pt = data_potencial, rt = data_raster)
     data_list
-  })
+  }) |> 
+    # data cambia con HUERTO
+    bindEvent(input$huerto)
   
   output$mapa <- renderLeaflet({
 
-    # grafico ultimo valor
-    # r <- potencial[[length(opt_fechas)]]
-
-    # pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(r), na.color = "transparent")
-
     data_list <- data_list()
-    data_sf_map <- data_list$sf |> 
+    
+    data_sf <- data_list$sf
+    data_pt <- data_list$pt
+    data_rt <- data_list$rt
+    
+    data_sf_map <- left_join(
+      data_sf,
+      data_pt |>filter(fecha == input$fecha[2]),
+      by = join_by(id)
+    ) |> 
       st_transform("+init=epsg:4326")
     
-    leaflet()  |>
-      addTiles() |>
-      leaflet::addPolygons(
-        group = "layer",
-        data = data_sf_map
-      ) |> 
+    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    
+    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
+    
+    
+    m <- leaflet() |> addTiles() |>
+      clearGroup(group = "layer") |>
+      clearControls() |> # remueve la Legenda
+      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |> 
+      # addLegend(
+      #   position  = "topright",
+      #   na.label  = "No disponible",
+      #   pal       = pal,
+      #   values    = colorData,
+      #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
+      #   layerId   = "colorLegend",
+      #   title     = dparvar |>
+      #     filter(variable == input$variable) |>
+      #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
+      #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
+      # ) |> 
       identity()
+    
+    if(isolate(input$layer == "shape")) {
+      m <- m |> 
+        leaflet::addPolygons(
+          group = "layer",
+          data = data_sf_map,
+          fillColor        = ~ pal(potencial),
+          weight           = .5,
+          dashArray        = "3",
+          stroke           = NULL,
+          fillOpacity      = 0.7,
+          layerId          = ~ id,
+          # popup            = popp,
+          # label            = lb,
+          # highlightOptions = highlightOptions(
+          #   color        = "white",
+          #   weight       = 2,
+          #   fillColor    = parametros$color,
+          #   bringToFront = TRUE
+          # ),
+          # labelOptions = labelOptions(
+          #   style = list(
+          #     "font-family"  = parametros$font_family,
+          #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
+          #     "font-size"    = "15px",
+          #     "padding"      = "15px",
+          #     "border-color" = "rgba(0,0,0,0.15)"
+          #   )
+          # )
+        ) |>
+        identity()
+    } else {
+      m <- m |> 
+        addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
+        identity()
+    }
+    
+    m
 
   })
    
-  observeEvent(input$fecha, {
+  observeEvent(c(input$fecha, input$layer), {
 
     print(input$fecha)
 
@@ -196,63 +294,65 @@ server <- function(input, output, session) {
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
     
     
-    leafletProxy("mapa") |>
+    m <- leafletProxy("mapa") |>
       # leaflet() |> addTiles() |>
       clearGroup(group = "layer") |>
       clearControls() |> # remueve la Legenda
-      addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |>
-      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |>
-      leaflet::addPolygons(
-        group = "layer",
-        data = data_sf_map,
-        fillColor        = ~ pal(potencial),
-        weight           = .5,
-        dashArray        = "3",
-        stroke           = NULL,
-        fillOpacity      = 0.7,
-        layerId          = ~ id,
-        # popup            = popp,
-        # label            = lb,
-        # highlightOptions = highlightOptions(
-        #   color        = "white",
-        #   weight       = 2,
-        #   fillColor    = parametros$color,
-        #   bringToFront = TRUE
-        # ),
-        # labelOptions = labelOptions(
-        #   style = list(
-        #     "font-family"  = parametros$font_family,
-        #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
-        #     "font-size"    = "15px",
-        #     "padding"      = "15px",
-        #     "border-color" = "rgba(0,0,0,0.15)"
-        #   )
-        # )
-      ) |>
-      # addLegend(
-      #   position  = "topright",
-      #   na.label  = "No disponible",
-      #   pal       = pal,
-      #   values    = colorData,
-      #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
-      #   layerId   = "colorLegend",
-      #   title     = dparvar |>
-      #     filter(variable == input$variable) |>
-      #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
-      #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
-      # ) |> 
+      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |> 
+    # addLegend(
+    #   position  = "topright",
+    #   na.label  = "No disponible",
+    #   pal       = pal,
+    #   values    = colorData,
+    #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
+    #   layerId   = "colorLegend",
+    #   title     = dparvar |>
+    #     filter(variable == input$variable) |>
+    #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
+    #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
+    # ) |> 
     identity()
     
+    if(input$layer == "shape") {
+      m <- m |> 
+        leaflet::addPolygons(
+          group = "layer",
+          data = data_sf_map,
+          fillColor        = ~ pal(potencial),
+          weight           = .5,
+          dashArray        = "3",
+          stroke           = NULL,
+          fillOpacity      = 0.7,
+          layerId          = ~ id,
+          # popup            = popp,
+          # label            = lb,
+          # highlightOptions = highlightOptions(
+          #   color        = "white",
+          #   weight       = 2,
+          #   fillColor    = parametros$color,
+          #   bringToFront = TRUE
+          # ),
+          # labelOptions = labelOptions(
+          #   style = list(
+          #     "font-family"  = parametros$font_family,
+          #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
+          #     "font-size"    = "15px",
+          #     "padding"      = "15px",
+          #     "border-color" = "rgba(0,0,0,0.15)"
+          #   )
+          # )
+        ) |>
+        identity()
+    } else {
+      m <- m |> 
+        addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
+        identity()
+    }
+    
+    m
     
   })
   
 }
 
 shinyApp(ui, server)
-
-# preguntas
-# 1. cual será el flujo usual: elegir sector, fecha, 
-# 1. aparte del map y grafico, que otra información se debe mostrar
-# 1. 
-# 1. cuantos sectores?
-# 1.mapa siempre se muestra por raster y no por unidad/shape?

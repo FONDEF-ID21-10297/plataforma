@@ -10,6 +10,7 @@ library(leaflet)
 library(terra)
 library(sf)
 library(fs)
+library(highcharter)
 
 # helpers -----------------------------------------------------------------
 fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01", "2022-01-01"))){
@@ -22,9 +23,16 @@ fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01", "2022-0
   
 }
 
+equipo_sector_a_sector_equipo <- function(x = c("a_b", "c_d")){
+  x |> 
+    str_split("_") |> 
+    map_chr(function(l){
+      str_c(l[2], "_", l[1])
+    })
+}
 
 # data --------------------------------------------------------------------
-huertos_gpks <- fs::dir_ls("data/vectorial/")
+huertos_gpks <- fs::dir_ls("data/vectorial/", regexp = ".gpkg")
 huertos_gpks
 
 walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
@@ -40,7 +48,14 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   cli::cli_inform("Leer gpk: {huerto_gpk}")
   
   huerto_sf <- read_sf(huerto_gpk, layer = 'sectores_riego') |>
-    st_transform(32719)
+    st_transform(32719) |>
+    mutate(id = row_number()) |> 
+    mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
+    mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
+  
+  huerto_sf
+  
+  plot(huerto_sf)
   
   cli::cli_inform("Leer rasters: {huerto_gpk}")
   
@@ -67,6 +82,44 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   saveRDS(data, fout)
   
 })
+
+
+# options -----------------------------------------------------------------
+newlang_opts <- getOption("highcharter.lang")
+
+newlang_opts$weekdays <- c("domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado")
+newlang_opts$months <- c("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+                         "agosto", "septiembre", "octubre", "noviembre", "diciembre")
+newlang_opts$shortMonths <- c("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep",
+                              "oct", "nov", "dic")
+
+newlang_opts$loading      <- "Cargando información"
+newlang_opts$downloadCSV  <- "Descargar CSV"
+newlang_opts$downloadJPEG <- "Descargar JPEG"
+newlang_opts$downloadPDF  <- "Descargar PDF"
+newlang_opts$downloadPNG  <- "Descargar PNG"
+newlang_opts$downloadSVG  <- "Descargar SVG"
+newlang_opts$downloadXLS  <- "Descargar XLS"
+newlang_opts$printChart   <- "Imprimir gráfico"
+newlang_opts$viewFullscreen <- "Ver pantalla completa"
+newlang_opts$resetZoom    <- "Resetear zoom"
+
+newlang_opts$thousandsSep <- "."
+newlang_opts$decimalPoint <- ","
+
+
+options(
+  highcharter.lang = newlang_opts,
+  highcharter.theme = hc_theme_smpl(
+    # color = parametros$color,
+    chart = list(style = list(fontFamily = "Roboto")),
+    plotOptions = list(
+      series = list(marker = list(symbol = "circle")),
+      line = list(marker = list(symbol = "circle")),
+      area = list(marker = list(symbol = "circle"))
+    )
+  )
+)
 
 # theme -------------------------------------------------------------------
 colors_app <- c("#d01407", "#31683f", "#064aac")
@@ -153,10 +206,10 @@ ui <- bslib::page_navbar(
       ),
       layout_columns(
         col_widths = 12,
-        card("grafico"),
-        x,
-        x,
-        x
+        card(full_screen = TRUE, highchartOutput("potencial")),
+        card(full_screen = TRUE, highchartOutput("clima")
+        )
+        
       )
     )
   ),
@@ -200,6 +253,11 @@ server <- function(input, output, session) {
     data_pt <- data_list$pt
     data_rt <- data_list$rt
     
+    data_sf <- data_sf |> 
+      mutate(id = row_number()) |> 
+      mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
+      mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
+    
     data_sf_map <- left_join(
       data_sf,
       data_pt |>filter(fecha == input$fecha[2]),
@@ -209,29 +267,20 @@ server <- function(input, output, session) {
     
     data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
     
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
-    
-    
     m <- leaflet() |> addTiles() |>
       clearGroup(group = "layer") |>
       clearControls() |> # remueve la Legenda
-      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |> 
-      # addLegend(
-      #   position  = "topright",
-      #   na.label  = "No disponible",
-      #   pal       = pal,
-      #   values    = colorData,
-      #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
-      #   layerId   = "colorLegend",
-      #   title     = dparvar |>
-      #     filter(variable == input$variable) |>
-      #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
-      #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
-      # ) |> 
       identity()
     
     if(isolate(input$layer == "shape")) {
+      
+      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
+                          # values(data_rt_map),
+                          data_sf_map$potencial,
+                          na.color = "transparent")
+        
       m <- m |> 
+        addLegend(pal = pal, values =  data_sf_map$potencial, title = "Potencial") |> 
         leaflet::addPolygons(
           group = "layer",
           data = data_sf_map,
@@ -241,27 +290,20 @@ server <- function(input, output, session) {
           stroke           = NULL,
           fillOpacity      = 0.7,
           layerId          = ~ id,
-          # popup            = popp,
-          # label            = lb,
-          # highlightOptions = highlightOptions(
-          #   color        = "white",
-          #   weight       = 2,
-          #   fillColor    = parametros$color,
-          #   bringToFront = TRUE
-          # ),
-          # labelOptions = labelOptions(
-          #   style = list(
-          #     "font-family"  = parametros$font_family,
-          #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
-          #     "font-size"    = "15px",
-          #     "padding"      = "15px",
-          #     "border-color" = "rgba(0,0,0,0.15)"
-          #   )
-          # )
+          # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
+          label            =  ~ str_glue("Sector/equipo: {sector_equipo}\nPotencial {round(potencial,2)}")
         ) |>
         identity()
+    
     } else {
+      
+      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
+                          values(data_rt_map),
+                          # data_sf_map$potencial,
+                          na.color = "transparent")
+      
       m <- m |> 
+        addLegend(pal = pal, values =   values(data_rt_map), title = "Potencial") |> 
         addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
         identity()
     }
@@ -269,7 +311,41 @@ server <- function(input, output, session) {
     m
 
   })
-   
+  
+  output$potencial <- renderHighchart({
+    
+    data_list <- data_list()
+
+    data_list$pt |> 
+      filter(temporada == max(temporada)) |> 
+      filter(fecha >= (max(fecha) - days(14))) |> 
+      hchart("line", hcaes(fecha, potencial, group = id)) |> 
+      hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2)
+    
+  })
+  
+  output$clima <-  renderHighchart({
+    
+    data_list <- data_list()
+    
+    fechas <- data_list$pt |> 
+      filter(temporada == max(temporada)) |> 
+      filter(fecha >= (max(fecha) - days(14))) |> 
+      summarise(min(fecha), max(fecha)) |> 
+      as.list()
+    
+    readRDS("data/clima_dia.rds") |> 
+      filter(temporada == max(temporada)) |> 
+      filter(sitio == input$huerto) |> 
+      filter(fechas[[1]] <= fecha, fecha <= fechas[[2]]) |> 
+      select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
+             deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
+      pivot_longer(cols = -fecha) |> 
+      mutate(fecha = ymd(fecha)) |> 
+      hchart("line", hcaes(fecha, value, group = name))
+    
+  })
+  
   observeEvent(c(input$fecha, input$layer), {
 
     print(input$fecha)
@@ -282,12 +358,18 @@ server <- function(input, output, session) {
     data_pt <- data_list$pt
     data_rt <- data_list$rt
     
+    data_sf <- data_sf |> 
+      mutate(id = row_number()) |> 
+      mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
+      mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
+    
     data_sf_map <- left_join(
       data_sf,
       data_pt |>filter(fecha == input$fecha[2]),
       by = join_by(id)
       ) |> 
       st_transform("+init=epsg:4326")
+    
     
     data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
     
@@ -297,24 +379,18 @@ server <- function(input, output, session) {
     m <- leafletProxy("mapa") |>
       # leaflet() |> addTiles() |>
       clearGroup(group = "layer") |>
-      clearControls() |> # remueve la Legenda
-      addLegend(pal = pal, values = values(data_rt_map), title = "Potencial") |> 
-    # addLegend(
-    #   position  = "topright",
-    #   na.label  = "No disponible",
-    #   pal       = pal,
-    #   values    = colorData,
-    #   # labFormat = labelFormat(transform = function(x) sort(x, decreasing = FALSE)),
-    #   layerId   = "colorLegend",
-    #   title     = dparvar |>
-    #     filter(variable == input$variable) |>
-    #     str_glue_data("{desc} {ifelse(is.na(unidad), '', str_c('(',unidad, ')'))}") |>
-    #     str_c(str_glue("<br/>{fmt_fecha(fmax)}"))
-    # ) |> 
-    identity()
+      clearControls() |> 
+      identity()
     
     if(input$layer == "shape") {
+      
+      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
+                          # values(data_rt_map),
+                          data_sf_map$potencial,
+                          na.color = "transparent")
+      
       m <- m |> 
+        addLegend(pal = pal, values =  data_sf_map$potencial, title = "Potencial") |> 
         leaflet::addPolygons(
           group = "layer",
           data = data_sf_map,
@@ -324,27 +400,20 @@ server <- function(input, output, session) {
           stroke           = NULL,
           fillOpacity      = 0.7,
           layerId          = ~ id,
-          # popup            = popp,
-          # label            = lb,
-          # highlightOptions = highlightOptions(
-          #   color        = "white",
-          #   weight       = 2,
-          #   fillColor    = parametros$color,
-          #   bringToFront = TRUE
-          # ),
-          # labelOptions = labelOptions(
-          #   style = list(
-          #     "font-family"  = parametros$font_family,
-          #     "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
-          #     "font-size"    = "15px",
-          #     "padding"      = "15px",
-          #     "border-color" = "rgba(0,0,0,0.15)"
-          #   )
-          # )
+          # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
+          label            =  ~ str_glue("Sector/equipo: {sector_equipo}\nPotencial {round(potencial,2)}")
         ) |>
         identity()
+      
     } else {
+      
+      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
+                          values(data_rt_map),
+                          # data_sf_map$potencial,
+                          na.color = "transparent")
+      
       m <- m |> 
+        addLegend(pal = pal, values =   values(data_rt_map), title = "Potencial") |> 
         addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
         identity()
     }

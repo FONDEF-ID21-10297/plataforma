@@ -83,7 +83,6 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   
 })
 
-
 # options -----------------------------------------------------------------
 newlang_opts <- getOption("highcharter.lang")
 
@@ -167,9 +166,10 @@ opts_fecha <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds"
   pull()
 
 sidebar_app <- sidebar(
+  tags$strong("Panel de control"),
   selectizeInput("huerto", label = "Huerto", choices = opts_huertos),
   selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
-  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 4 * 7)[1], tail(opts_fecha, 1))),
+  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))),
   radioGroupButtons(
     inputId = "layer", label = "Layer", choices = c("Shape" = "shape", "Raster" = "raster"),
     justified = TRUE,
@@ -201,15 +201,15 @@ ui <- bslib::page_navbar(
     layout_columns(
       col_widths = c(8, 4),
       card(
+        card_header(uiOutput("txt_mapa_huerto")),
         full_screen = TRUE,
         leafletOutput("mapa")
       ),
       layout_columns(
         col_widths = 12,
-        card(full_screen = TRUE, highchartOutput("potencial")),
-        card(full_screen = TRUE, highchartOutput("clima")
+        card(card_header("Potencial por sectores de riego"), full_screen = TRUE, highchartOutput("potencial")),
+        card(card_header("Datos meteorológicos del huerto"), full_screen = TRUE, highchartOutput("clima")
         )
-        
       )
     )
   ),
@@ -224,6 +224,19 @@ ui <- bslib::page_navbar(
 
 server <- function(input, output, session) {
 
+  showModal(
+    modalDialog(
+      # title = tags$small("Bienvenido al"),
+      tags$p("Bienvenido a ", tags$strong("SATORI")),
+      tags$hr(),
+      tags$p("SATORI es una herramienta que permite analizar el potencial de riego en huertos a lo largo de distintas temporadas."),
+      tags$p("Selecciona un huerto, define el rango de fechas y accede a visualizaciones detalladas en un mapa interactivo y una línea temporal, ayudando a optimizar decisiones agrícolas con datos precisos y en tiempo real."),
+      easyClose = TRUE,
+      footer = NULL
+    )
+  )
+  
+  
   data_list <- reactive({
 
     # datas
@@ -236,14 +249,27 @@ server <- function(input, output, session) {
       terra::unwrap()
     
     # previo a enviar datos actualizar select: temporada y fecha 
+    opts_fecha <- data_potencial |> 
+      filter(temporada == input$temporada) |> 
+      distinct(fecha) |> 
+      pull() |>
+      sort()
     
+    updateSliderTextInput(session = session,
+                          inputId = "fecha",
+                          choices = opts_fecha, 
+                          selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1)))
     
-    # 
     data_list <- list(sf = data_sf, pt = data_potencial, rt = data_raster)
     data_list
+    
   }) |> 
     # data cambia con HUERTO
-    bindEvent(input$huerto)
+    bindEvent(input$huerto, input$temporada)
+  
+  output$txt_mapa_huerto <- renderUI({
+    str_glue("Mapa del huerto {names(which(input$huerto == opts_huertos))} para {max(input$fecha)}")
+    })
   
   output$mapa <- renderLeaflet({
 
@@ -317,32 +343,46 @@ server <- function(input, output, session) {
     data_list <- data_list()
 
     data_list$pt |> 
-      filter(temporada == max(temporada)) |> 
-      filter(fecha >= (max(fecha) - days(14))) |> 
+      filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
       hchart("line", hcaes(fecha, potencial, group = id)) |> 
-      hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2)
-    
+      hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2) |> 
+      hc_plotOptions(series = list(animation = FALSE)) |> 
+      hc_yAxis(title = list(text = "Potencial")) |> 
+      hc_yAxis(title = list(text = "Fecha"))
+
   })
   
   output$clima <-  renderHighchart({
     
     data_list <- data_list()
     
-    fechas <- data_list$pt |> 
-      filter(temporada == max(temporada)) |> 
-      filter(fecha >= (max(fecha) - days(14))) |> 
-      summarise(min(fecha), max(fecha)) |> 
-      as.list()
+    # fechas <- data_list$pt |>
+    #   filter(between(fecha, ymd(min(input$fecha)), ymd(min(input$fecha)))) |> 
+    #   # filter(temporada == max(temporada)) |> 
+    #   # filter(fecha >= (max(fecha) - days(14))) |> 
+    #   # filter(between(fecha) >= (max(fecha) - days(14))) |> 
+    #   summarise(min(fecha), max(fecha)) |> 
+    #   as.list()
+    
+    # readRDS("data/clima_dia.rds") |> count(temporada)
     
     readRDS("data/clima_dia.rds") |> 
-      filter(temporada == max(temporada)) |> 
+      # filter(temporada == max(temporada)) |> 
       filter(sitio == input$huerto) |> 
-      filter(fechas[[1]] <= fecha, fecha <= fechas[[2]]) |> 
+      filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
       select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
              deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
       pivot_longer(cols = -fecha) |> 
       mutate(fecha = ymd(fecha)) |> 
-      hchart("line", hcaes(fecha, value, group = name))
+      mutate(
+        name = str_replace_all(name, "_", " "),
+        name = str_to_title(name)
+      ) |> 
+      hchart("line", hcaes(fecha, value, group = name)) |> 
+      hc_plotOptions(series = list(animation = FALSE)) |> 
+      hc_tooltip(valueDecimasl = 2, table = TRUE) |> 
+      hc_yAxis(title = list(text = "")) |> 
+      hc_yAxis(title = list(text = "Fecha")) 
     
   })
   
@@ -370,11 +410,9 @@ server <- function(input, output, session) {
       ) |> 
       st_transform("+init=epsg:4326")
     
-    
     data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
     
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
-    
     
     m <- leafletProxy("mapa") |>
       # leaflet() |> addTiles() |>

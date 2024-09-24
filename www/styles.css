@@ -1,0 +1,18 @@
+.leaflet-popup-content-wrapper {
+  /* background: #DB0925; */
+  border-radius: 3px;
+  font-family: 'Inria Sans';
+  font-size: 15px;
+  }
+
+.leaflet-control{
+  font-family: 'Inria Sans';
+}
+
+.leaflet .legend {
+  font-family: "Inria Sans";
+}
+
+#mapa > div.leaflet-control-container > div.leaflet-top.leaflet-right > div.info.legend.leaflet-control > div > strong {
+  font-family: 'Inria Sans';
+}

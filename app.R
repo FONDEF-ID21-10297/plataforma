@@ -111,7 +111,7 @@ options(
   highcharter.lang = newlang_opts,
   highcharter.theme = hc_theme_smpl(
     # color = parametros$color,
-    chart = list(style = list(fontFamily = "Roboto")),
+    chart = list(style = list(fontFamily = "Inria Sans")),
     plotOptions = list(
       series = list(marker = list(symbol = "circle")),
       line = list(marker = list(symbol = "circle")),
@@ -126,7 +126,7 @@ theme_app <- bs_theme(
   # primary ="#31683f",
   fg = "#454545",
   bg = "white",
-  base_font = font_google("Roboto"),
+  base_font = font_google("Inria Sans"),
   # `navbar-light-contrast` =
   # "navbar-bg" = "green",                    # works
   # "navbar-brand-color" = "red !important",  # does not work!!!
@@ -196,7 +196,7 @@ ui <- bslib::page_navbar(
       tags$link(href = "favicon.png", rel = "icon"),
       # tags$script(src = "https://www.googletagmanager.com/gtag/js?id=G-CYG993XQRT", async = ""),
       # tags$script(src = "js/ga.js"),
-      # includeCSS("www/css/styles.css"),
+      includeCSS("www/styles.css"),
     ),
     layout_columns(
       col_widths = c(8, 4),

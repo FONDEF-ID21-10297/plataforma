@@ -136,11 +136,11 @@ theme_app <- bs_theme(
   "nav-link-color" = "#31683f",   # works
   # "nav-link-hover-color" = "orange !important", # works
   ) |>
-  bs_add_rules(
-    # "body { background-color: $body-bg; }"
-    # sass::sass_file("www/mdb.min.css")
-    sass::as_sass(readLines("www/mdb.min.css"))
-    ) |> 
+  # bs_add_rules(
+  #   # "body { background-color: $body-bg; }"
+  #   # sass::sass_file("www/mdb.min.css")
+  #   sass::as_sass(readLines("www/mdb.min.css"))
+  #   ) |> 
   bs_add_variables(
     "--bs-primary" = "#31683f"
   )
@@ -166,12 +166,14 @@ opts_fecha <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds"
   pull()
 
 sidebar_app <- sidebar(
+  id = "mainsidebar",
   tags$strong("Panel de control"),
   selectizeInput("huerto", label = "Huerto", choices = opts_huertos),
   selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
-  sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))),
+  # sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))),
+  dateInput("fecha", label = "Fecha", value = tail(opts_fecha, 1)),
   radioGroupButtons(
-    inputId = "layer", label = "Layer", choices = c("Shape" = "shape", "Raster" = "raster"),
+    inputId = "layer", label = "Mapa", choices = c("Potencial" = "shape", "Estrés" = "raster"),
     justified = TRUE,
     size = "sm"
     )
@@ -196,7 +198,8 @@ ui <- bslib::page_navbar(
       tags$link(href = "favicon.png", rel = "icon"),
       # tags$script(src = "https://www.googletagmanager.com/gtag/js?id=G-CYG993XQRT", async = ""),
       # tags$script(src = "js/ga.js"),
-      includeCSS("www/styles.css"),
+      includeScript("www/custom.js"),
+      # includeCSS("www/styles.css"),
     ),
     layout_columns(
       col_widths = c(8, 4),
@@ -214,13 +217,22 @@ ui <- bslib::page_navbar(
     )
   ),
   nav_panel(
-    title = "Acerca de la Aplicación",
-  )
+    title = "Resumen Temporada",
+    layout_columns(
+      col_widths = 12,
+      card(full_screen = TRUE, highchartOutput("potencial_temporada")),
+      )
+    )
 )
 
 
 # server ------------------------------------------------------------------
-# input <- list(huerto = "la_esperanza", temporada = "2022-23", fecha = c("2024-04-15", "2024-04-28"))
+# input <- list(
+#   huerto = "la_esperanza",
+#   temporada = "2022-23",
+#   # fecha = c("2024-04-15", "2024-04-28")
+#   fecha = "2024-04-28"
+# )
 
 server <- function(input, output, session) {
 
@@ -248,6 +260,10 @@ server <- function(input, output, session) {
     data_raster <- read_rds(str_glue("data/raster_rds/{input$huerto}.rds")) |> 
       terra::unwrap()
     
+    data_umbral <- read_rds("data/umbral_tlp.rds") |>
+      filter(sitio == input$huerto)  |> 
+      mutate(across(everything(), function(x) set_names(x, NULL)))
+    
     # previo a enviar datos actualizar select: temporada y fecha 
     opts_fecha <- data_potencial |> 
       filter(temporada == input$temporada) |> 
@@ -255,12 +271,22 @@ server <- function(input, output, session) {
       pull() |>
       sort()
     
-    updateSliderTextInput(session = session,
-                          inputId = "fecha",
-                          choices = opts_fecha, 
-                          selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1)))
+    # updateSliderTextInput(session = session,
+    updateDateInput(
+      session = session,
+      inputId = "fecha",
+      value = tail(opts_fecha, 1)
+      # choices = opts_fecha,
+      # selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))
+      )
     
-    data_list <- list(sf = data_sf, pt = data_potencial, rt = data_raster)
+    data_list <- list(
+      sf = data_sf, 
+      pt = data_potencial, 
+      rt = data_raster,
+      um = data_umbral
+      )
+    
     data_list
     
   }) |> 
@@ -286,14 +312,18 @@ server <- function(input, output, session) {
     
     data_sf_map <- left_join(
       data_sf,
-      data_pt |>filter(fecha == input$fecha[2]),
+      data_pt |> filter(fecha == input$fecha),
+      # data_pt |> filter(fecha == input$fecha[2]),
       by = join_by(id)
     ) |> 
       st_transform("+init=epsg:4326")
     
-    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
     
-    m <- leaflet() |> addTiles() |>
+    m <- leaflet() |> 
+      # addTiles() |>
+      addProviderTiles(providers$Esri.WorldImagery) |>
       clearGroup(group = "layer") |>
       clearControls() |> # remueve la Legenda
       identity()
@@ -341,15 +371,76 @@ server <- function(input, output, session) {
   output$potencial <- renderHighchart({
     
     data_list <- data_list()
-
+    
     data_list$pt |> 
-      filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
+      # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
+      filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |>
+      mutate(potencial = -potencial / 10) |> 
       hchart("line", hcaes(fecha, potencial, group = id)) |> 
       hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
-      hc_yAxis(title = list(text = "Potencial")) |> 
-      hc_yAxis(title = list(text = "Fecha"))
+      hc_yAxis(
+        title = list(text = "Potencial"),
+        min = -3,
+        max = 0,
+        plotBands = list(
+          list(
+            from = data_list$um$u_minimo,
+            to = 100,
+            color = "#8CD47E55"
+          ),
+          list(
+            from = data_list$um$u_maximo,
+            to = data_list$um$u_minimo,
+            color = "#F8D66D55"
+          ),
+          list(
+            from = -5,
+            to = data_list$um$u_maximo,
+            color = "#FF696199"
+          )
+        )
+        ) |> 
+      hc_xAxis(title = list(text = "Fecha"))
 
+  })
+  
+  output$potencial_temporada <- renderHighchart({
+    
+    data_list <- data_list()
+    
+    data_list$pt |> 
+      filter(temporada == input$temporada) |> 
+      # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
+      # filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |>
+      mutate(potencial = -potencial / 10) |> 
+      hchart("line", hcaes(fecha, potencial, group = id)) |> 
+      hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2) |> 
+      hc_plotOptions(series = list(animation = FALSE)) |> 
+      hc_yAxis(
+        title = list(text = "Potencial"),
+        min = -3,
+        max = 0,
+        plotBands = list(
+          list(
+            from = data_list$um$u_minimo,
+            to = 100,
+            color = "#8CD47E55"
+          ),
+          list(
+            from = data_list$um$u_maximo,
+            to = data_list$um$u_minimo,
+            color = "#F8D66D55"
+          ),
+          list(
+            from = -5,
+            to = data_list$um$u_maximo,
+            color = "#FF696199"
+          )
+        )
+      ) |> 
+      hc_xAxis(title = list(text = "Fecha"))
+    
   })
   
   output$clima <-  renderHighchart({
@@ -369,7 +460,8 @@ server <- function(input, output, session) {
     readRDS("data/clima_dia.rds") |> 
       # filter(temporada == max(temporada)) |> 
       filter(sitio == input$huerto) |> 
-      filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
+      # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
+      filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |> 
       select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
              deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
       pivot_longer(cols = -fecha) |> 
@@ -380,17 +472,16 @@ server <- function(input, output, session) {
       ) |> 
       hchart("line", hcaes(fecha, value, group = name)) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
-      hc_tooltip(valueDecimasl = 2, table = TRUE) |> 
+      hc_tooltip(valueDecimals = 2, table = TRUE) |> 
       hc_yAxis(title = list(text = "")) |> 
-      hc_yAxis(title = list(text = "Fecha")) 
+      hc_xAxis(title = list(text = "Fecha")) 
     
   })
   
   observeEvent(c(input$fecha, input$layer), {
 
-    print(input$fecha)
-
     cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha[2]}"))
+    cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha}"))
 
     data_list <- data_list()
     
@@ -405,12 +496,14 @@ server <- function(input, output, session) {
     
     data_sf_map <- left_join(
       data_sf,
-      data_pt |>filter(fecha == input$fecha[2]),
+      # data_pt |>filter(fecha == input$fecha[2]),
+      data_pt |>filter(fecha == input$fecha),
       by = join_by(id)
       ) |> 
       st_transform("+init=epsg:4326")
     
-    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
+    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
     
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
     

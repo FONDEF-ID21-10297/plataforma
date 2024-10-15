@@ -1,0 +1,25 @@
+SatOri: Optimización del Riego en Cerezos mediante Monitoreo Satelital
+El proyecto SatOri tiene como objetivo replantear el manejo del riego en huertos de cerezos mediante el uso de tecnología satelital avanzada. El problema del uso ineficiente del agua en la agricultura, a pesar de la tecnificación existente, sigue siendo un desafío en la producción frutal, particularmente en regiones con escasez de agua o variabilidad climática. SatOri busca proporcionar una solución innovadora y de bajo costo que permita a los productores optimizar el uso del agua, ajustando los tiempos y volúmenes de riego basándose en información obtenida de imágenes satelitales públicas.
+Este proyecto, desarrollado en colaboración con el Centro Hemera y el Centro de Genómica y Bioinformática (CGB) de la Universidad Mayor, la agrícola Garces Fruit, el Liceo Agrícola El Carmen de San Fernando, y apoyado por la Agencia Nacional de Investigación y Desarrollo (ANID), utiliza una combinación de datos meteorológicos y sensores satelitales para monitorear el estado hídrico de la canopia en tiempo real. A través de un modelo que estima el potencial hídrico xilemático (Ψs) basado en imágenes ópticas (VNIR y SWIR), SatOri genera recomendaciones precisas sobre cuándo y cuánto regar, evitando tanto el riego excesivo como el déficit que pueda comprometer la calidad de la producción.
+El impacto de este servicio es significativo, ya que no solo permite ahorrar agua, un recurso cada vez más escaso, sino que también mejora la productividad del cultivo y la calidad de la fruta. La capacidad de ajustar el riego de manera precisa y en función de las condiciones específicas del huerto le da a los productores una ventaja competitiva, permitiendo una gestión más sustentable y eficiente de sus cultivos.
+________________________________________
+Sitios de Proyecto
+Río Claro
+•	Ubicación: Región de O'Higgins, Chile
+•	Extensión: 60 hectáreas
+•	Edad de los árboles: 9 años
+•	Tipo de suelo: Franco arenoso, baja retención de humedad
+•	Floración completa: Octubre
+•	Cosecha: 23 de diciembre de 2022 y 3 de enero de 2024
+El huerto de Río Claro es uno de los sitios donde se implementa SatOri. El suelo arenoso presenta baja capacidad de retención de humedad, lo que hace que el monitoreo continuo del estado hídrico sea crucial para mantener la productividad de los árboles.
+La Esperanza
+•	Ubicación: Región de O'Higgins, Chile
+•	Extensión: 40 hectáreas
+•	Edad de los árboles: 6 años
+•	Tipo de suelo: Arcilloso, alta retención de humedad
+•	Floración completa: Octubre
+•	Cosecha: 12 de diciembre de 2022 y 2023
+El huerto de La Esperanza presenta un suelo arcilloso que retiene más humedad. Esta diferencia en las condiciones del suelo permite comparar el comportamiento del riego en distintos tipos de suelos, ofreciendo recomendaciones ajustadas a las características del terreno.
+________________________________________
+Plataforma de Geovisualización
+La plataforma web SatOri permite a los productores de cerezos visualizar en tiempo real el estado hídrico de sus huertos, recibir recomendaciones sobre la cantidad y el momento óptimo para aplicar el riego, y ajustar sus prácticas de manera eficiente. Este sistema no solo contribuye a optimizar el uso del agua, sino que también garantiza una óptima calidad en la producción frutal.

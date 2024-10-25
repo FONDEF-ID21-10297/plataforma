@@ -1,3 +1,4 @@
+# source("global.R")
 # input <- list(
 #   huerto = "la_esperanza",
 #   temporada = "2022-23",
@@ -35,6 +36,14 @@ function(input, output, session) {
       filter(sitio == input$huerto)  |> 
       mutate(across(everything(), function(x) set_names(x, NULL)))
     
+    data_clima <- readRDS("data/clima_dia.rds") |> 
+      mutate(
+        fecha = ymd(fecha),
+        temporada = fecha_a_temporada(fecha)
+        ) |> 
+      filter(temporada == input$temporada) |>
+      filter(sitio == input$huerto) 
+    
     # previo a enviar datos actualizar select: temporada y fecha 
     opts_fecha <- data_potencial |> 
       filter(temporada == input$temporada) |> 
@@ -55,7 +64,8 @@ function(input, output, session) {
       sf = data_sf, 
       pt = data_potencial, 
       rt = data_raster,
-      um = data_umbral
+      um = data_umbral,
+      cl = data_clima
     )
     
     data_list
@@ -143,6 +153,31 @@ function(input, output, session) {
     
     data_list <- data_list()
     
+    axis <- create_axis(naxis = 3, lineWidth = 2, title = list(text = NULL), heights = c(2, 1, 1))
+    
+    pb <- list(
+      list(
+        from = data_list$um$u_minimo,
+        to = 100,
+        color = "#8CD47E55"
+      ),
+      list(
+        from = data_list$um$u_maximo,
+        to = data_list$um$u_minimo,
+        color = "#F8D66D55"
+      ),
+      list(
+        from = -5,
+        to = data_list$um$u_maximo,
+        color = "#FF696199"
+      )
+    )
+    
+    axis[[1]]$plotBands <- pb
+    axis[[1]]$title     <- list(text = "Potencial")
+    axis[[1]]$min       <- -3
+    axis[[1]]$max       <- 0
+    
     data_list$pt |> 
       # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
       filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |>
@@ -150,28 +185,13 @@ function(input, output, session) {
       hchart("line", hcaes(fecha, potencial, group = id)) |> 
       hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
-      hc_yAxis(
-        title = list(text = "Potencial"),
-        min = -3,
-        max = 0,
-        plotBands = list(
-          list(
-            from = data_list$um$u_minimo,
-            to = 100,
-            color = "#8CD47E55"
-          ),
-          list(
-            from = data_list$um$u_maximo,
-            to = data_list$um$u_minimo,
-            color = "#F8D66D55"
-          ),
-          list(
-            from = -5,
-            to = data_list$um$u_maximo,
-            color = "#FF696199"
-          )
-        )
-      ) |> 
+      # hc_yAxis(
+      #   title = list(text = "Potencial"),
+      #   min = -3,
+      #   max = 0,
+      #   plotBands = pb
+      # ) 
+      hc_yAxis_multiples(axis) |> 
       hc_xAxis(title = list(text = "Fecha"))
     
   })
@@ -216,8 +236,8 @@ function(input, output, session) {
   
   output$clima <-  renderHighchart({
     
-    data_list <- data_list()
-    
+    # data_list <- data_list()
+    # 
     # fechas <- data_list$pt |>
     #   filter(between(fecha, ymd(min(input$fecha)), ymd(min(input$fecha)))) |> 
     #   # filter(temporada == max(temporada)) |> 
@@ -225,27 +245,27 @@ function(input, output, session) {
     #   # filter(between(fecha) >= (max(fecha) - days(14))) |> 
     #   summarise(min(fecha), max(fecha)) |> 
     #   as.list()
-    
+    # 
     # readRDS("data/clima_dia.rds") |> count(temporada)
-    
-    readRDS("data/clima_dia.rds") |> 
-      # filter(temporada == max(temporada)) |> 
-      filter(sitio == input$huerto) |> 
-      # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
-      filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |> 
-      select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
-             deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
-      pivot_longer(cols = -fecha) |> 
-      mutate(fecha = ymd(fecha)) |> 
-      mutate(
-        name = str_replace_all(name, "_", " "),
-        name = str_to_title(name)
-      ) |> 
-      hchart("line", hcaes(fecha, value, group = name)) |> 
-      hc_plotOptions(series = list(animation = FALSE)) |> 
-      hc_tooltip(valueDecimals = 2, table = TRUE) |> 
-      hc_yAxis(title = list(text = "")) |> 
-      hc_xAxis(title = list(text = "Fecha")) 
+    # 
+    # readRDS("data/clima_dia.rds") |> 
+    #   # filter(temporada == max(temporada)) |> 
+    #   filter(sitio == input$huerto) |> 
+    #   # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
+    #   filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |> 
+    #   select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
+    #          deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
+    #   pivot_longer(cols = -fecha) |> 
+    #   mutate(fecha = ymd(fecha)) |> 
+    #   mutate(
+    #     name = str_replace_all(name, "_", " "),
+    #     name = str_to_title(name)
+    #   ) |> 
+    #   hchart("line", hcaes(fecha, value, group = name)) |> 
+    #   hc_plotOptions(series = list(animation = FALSE)) |> 
+    #   hc_tooltip(valueDecimals = 2, table = TRUE) |> 
+    #   hc_yAxis(title = list(text = "")) |> 
+    #   hc_xAxis(title = list(text = "Fecha")) 
     
   })
   

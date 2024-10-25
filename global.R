@@ -1,10 +1,7 @@
-# global ------------------------------------------------------------------
-# Rhino / shinyApp entrypoint. Do not edit.
-# rhino::app()
+# packages ----------------------------------------------------------------
 library(shiny)
 library(shinyWidgets)
 library(bslib)
-
 library(tidyverse)
 library(leaflet)
 library(terra)

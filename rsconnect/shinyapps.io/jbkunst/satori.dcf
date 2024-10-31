@@ -5,9 +5,8 @@ account: jbkunst
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 12633569
-bundleId: 9212263
+bundleId: 9270488
 url: https://jbkunst.shinyapps.io/satori/
 version: 1
 asMultiple: FALSE
 asStatic: FALSE
-ignoredFiles: .Rprofile|config.yml|README.md|renv.lock|rhino.yml

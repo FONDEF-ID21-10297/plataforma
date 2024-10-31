@@ -5,6 +5,7 @@ bslib::page_navbar(
   sidebar = sidebar_app,
   nav_panel(
     title = "Panel",
+    class = "bslib-page-dashboard",
     tags$head(
       tags$link(href = "favicon.png", rel = "icon"),
       # tags$script(src = "https://www.googletagmanager.com/gtag/js?id=G-CYG993XQRT", async = ""),
@@ -12,21 +13,14 @@ bslib::page_navbar(
       includeScript("www/custom.js"),
       # includeCSS("www/styles.css"),
     ),
+    uiOutput("value_boxes"),
     layout_columns(
-      col_widths = c(8, 4),
-      card(
-        card_header(uiOutput("txt_mapa_huerto")),
-        full_screen = TRUE,
-        leafletOutput("mapa")
-      ),
-      layout_columns(
-        col_widths = 12,
-        card(card_header("Potencial por sectores de riego"), full_screen = TRUE, highchartOutput("potencial")),
-        card(card_header("Datos meteorológicos del huerto"), full_screen = TRUE, highchartOutput("clima")
-        )
+      col_widths = c(5, 7),
+      card(card_header(uiOutput("txt_mapa_huerto")), full_screen = TRUE, leafletOutput("mapa")),
+      card(card_header("Datos última semana"), full_screen = TRUE, highchartOutput("potencial")),
+      # card(card_header("Datos meteorológicos del huerto"), full_screen = TRUE, highchartOutput("clima")
       )
-    )
-  ),
+    ),
   nav_panel(
     title = "Resumen Temporada",
     layout_columns(

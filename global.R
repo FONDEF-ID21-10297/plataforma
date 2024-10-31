@@ -8,6 +8,7 @@ library(terra)
 library(sf)
 library(fs)
 library(highcharter)
+library(bsicons)
 
 # helpers -----------------------------------------------------------------
 fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01", "2022-01-01"))){
@@ -119,6 +120,9 @@ options(
 
 # theme -------------------------------------------------------------------
 colors_app <- c("#d01407", "#31683f", "#064aac")
+
+colors_lvl <- c("#8CD47E", "#F8D66D", "#FF6961")
+
 theme_app <- bs_theme(
   # primary ="#31683f",
   fg = "#454545",
@@ -138,9 +142,10 @@ theme_app <- bs_theme(
   #   # sass::sass_file("www/mdb.min.css")
   #   sass::as_sass(readLines("www/mdb.min.css"))
   #   ) |> 
-  bs_add_variables(
-    "--bs-primary" = "#31683f"
-  )
+  # bs_add_variables(
+  #   "--bs-primary" = "#31683f"
+  # ) |> 
+  identity()
 
 # sidebar -----------------------------------------------------------------
 opts_huertos <- huertos_gpks |>

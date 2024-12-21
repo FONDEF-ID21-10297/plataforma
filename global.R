@@ -57,7 +57,7 @@ walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   
   cli::cli_inform("Leer rasters: {huerto_gpk}")
   
-  tif_files <- dir_ls("data/potencial_predict/") |> 
+  tif_files <- dir_ls("data/potencial_predict_m/") |> 
     str_subset(huerto)
   
   potencial <- rast(tif_files)

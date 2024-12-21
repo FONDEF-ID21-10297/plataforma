@@ -37,6 +37,22 @@ function(input, output, session) {
       filter(sitio == input$huerto)  |> 
       mutate(across(everything(), function(x) set_names(x, NULL)))
     
+    # data_etc <- readRDS("data/ETc.rds")
+    # 
+    # # input$fecha <- "2022-11-15"
+    # data_etc |> 
+    #   filter(sitio == input$huerto) |> 
+    #   arrange(sector_id, fecha) |> 
+    #   filter(between(fecha, ymd(input$fecha) - days(2), ymd(input$fecha))) |> 
+    #   group_by(sector_id) |> 
+    #   summarise(
+    #     fecha = max(fecha),
+    #     t_horas = sum(ETc, na.rm = TRUE)/2
+    #   ) |> 
+    #   mutate(
+    #     t_min = t_horas * 60 
+    #   )
+    # 
     data_clima <- readRDS("data/clima_dia.rds") |> 
       mutate(
         fecha = ymd(fecha),

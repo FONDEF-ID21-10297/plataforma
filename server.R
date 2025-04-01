@@ -8,20 +8,27 @@
 
 function(input, output, session) {
   
-  showModal(
-    modalDialog(
-      # title = tags$small("Bienvenido al"),
-      tags$p("Bienvenido a ", tags$strong("SATORI")),
-      tags$hr(),
-      tags$p("SATORI es una herramienta que permite analizar el potencial de riego en huertos a lo largo de distintas temporadas."),
-      tags$p("Selecciona un huerto, define el rango de fechas y accede a visualizaciones detalladas en un mapa interactivo y una línea temporal, ayudando a optimizar decisiones agrícolas con datos precisos y en tiempo real."),
-      easyClose = TRUE,
-      footer = NULL
-    )
-  )
+  # showModal(
+  #   modalDialog(
+  #     # title = tags$small("Bienvenido al"),
+  #     tags$p("Bienvenido a ", tags$strong("SATORI")),
+  #     tags$hr(),
+  #     tags$p("SATORI es una herramienta que permite analizar el potencial de riego en huertos a lo largo de distintas temporadas."),
+  #     tags$p("Selecciona un huerto, define el rango de fechas y accede a visualizaciones detalladas en un mapa interactivo y una línea temporal, ayudando a optimizar decisiones agrícolas con datos precisos y en tiempo real."),
+  #     easyClose = TRUE,
+  #     footer = NULL
+  #   )
+  # )
 
   # data --------------------------------------------------------------------
+  # variable que señala que sector graficar
+  
+  sector <- reactiveVal(NULL)
+  
   data_list <- reactive({
+    
+    # cuando se cambia de huerto se resetea
+    sector(NULL)
     
     # datas
     data_sf <- read_sf(str_glue("data/vectorial/{input$huerto}.gpkg"), layer = 'sectores_riego') |>
@@ -94,7 +101,6 @@ function(input, output, session) {
     # data cambia con HUERTO
     bindEvent(input$huerto, input$temporada)
   
-  
   output$txt_mapa_huerto <- renderUI({
     str_glue("Mapa del huerto {names(which(input$huerto == opts_huertos))} para {max(input$fecha)}")
   })
@@ -162,10 +168,14 @@ function(input, output, session) {
       # data_pt |> filter(fecha == input$fecha[2]),
       by = join_by(id)
     ) |> 
-      st_transform("+init=epsg:4326")
+      st_transform("+init=epsg:4326") |>
+      mutate(potencial = - potencial / 10)
     
     # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
     data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
+    
+    # transformar potencial
+    data_rt_map[[1]] <- - data_rt_map[[1]]/10 
     
     m <- leaflet() |> 
       # addTiles() |>
@@ -216,11 +226,11 @@ function(input, output, session) {
   
   output$potencial <- renderHighchart({
     
+    cli::cli_inform("output `potencial` - sector: {sector()}")
+    
     data_list <- data_list()
-    
-    # axis
-    axis <- create_axis(naxis = 3, lineWidth = 2, title = list(text = NULL), heights = c(2, 1, 1))
-    
+  
+    # plotbands 
     pb <- list(
       list(
         from = data_list$um$u_minimo,
@@ -239,6 +249,9 @@ function(input, output, session) {
       )
     )
     
+    # axis
+    # modificacion: se crean 4 para que la ultima se paree con la primera
+    axis <- create_axis(naxis = 3, lineWidth = 2, title = list(text = NULL), heights = c(2, 1, 1))
     axis[[1]]$plotBands <- pb
     axis[[1]]$min       <- -3
     axis[[1]]$max       <- 0
@@ -247,38 +260,49 @@ function(input, output, session) {
     axis[[2]]$title     <- list(text = "Cantidad Riesgo")
     axis[[3]]$title     <- list(text = "Datos Meteorológicos")
     
+    axis[[4]] <- axis[[1]]
+    axis[[4]]$linkedTo <- 0
+    axis[[4]]$opposite <- TRUE
+    axis[[4]]$title <- list(text = "")
+    
     # days
     fmax <- ymd(input$fecha)
     fmin <- ymd(input$fecha) - days(7 - 1)
+    
     
     # data potential
     daux_pt <- data_list$pt |> 
       # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
       filter(fmin <= fecha, fecha <= fmax) |>
-      mutate(potencial = -potencial / 10) |> 
-      mutate(id = str_glue("Sector {id}"))
+      mutate(potencial = -potencial / 10) 
     
-    # genero factores para ver cual se muestra y cual no   
-    lvls <- daux_pt |> 
-      filter(fecha == fmax) |> 
-      mutate(
-        id = factor(id),
-        id = fct_reorder(id, potencial, min)
-        ) |> 
-      pull(id) |> 
-      levels()
+    # seleccionamos sector o el minimo si es que no está definido
+    sec <- sector()
+    sec <- coalesce(
+      sec,
+      daux_pt |> filter(fecha == max(fecha)) |> filter(potencial == min(potencial)) |> pull(id)
+      )
     
     daux_pt <- daux_pt |> 
-      mutate(id = factor(id, levels = lvls))
+      filter(id == sec) |>  
+      mutate(id = str_glue("Sector {id}"))
+    
+    axis[[4]]$tickPositioner = JS(
+      "function(min,max){
+               var data = this.chart.yAxis[0].series[0].processedYData;
+               //last point
+               return [Math.round(1000 * data[data.length-1])/1000];
+            }"
+    )
     
     # data clima
     daux_cl <- data_list$cl |> 
       filter(fmin <= fecha, fecha <= fmax) |> 
       select(
         fecha,
-        temperatura_media = t_media,
-        evapotransipracion_referencia = eto,
-        deficiencia_de_presión_de_vapor_promedio = vpd_medio
+        temp_media = t_media,
+        evapotransipracion_ref = eto,
+        deficiencia_presión_vapor_promedio = vpd_medio
         ) |>
       pivot_longer(cols = -fecha) |>
       mutate(fecha = highcharter::datetime_to_timestamp(fecha)) |>
@@ -290,7 +314,6 @@ function(input, output, session) {
     
     # data riego 
     set.seed(fmax)
-  
     daux_rg <- daux_pt |> 
       select(name = id, x = fecha) |> 
       mutate(x = datetime_to_timestamp(x)) |> 
@@ -298,20 +321,21 @@ function(input, output, session) {
       filter(y > 0) |> 
       mutate(name = str_glue("Riesgo en {name}"))
     
-    hchart(daux_pt, "line", hcaes(fecha, potencial, group = id), visible = c(TRUE, rep(FALSE, length(lvls) - 1))) |> 
+    hchart(daux_pt, "line", hcaes(fecha, potencial, group = id), animation = TRUE) |> 
       hc_tooltip(sort = FALSE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
-      # hc_yAxis(
-      #   title = list(text = "Potencial"),
-      #   min = -3,
-      #   max = 0,
-      #   plotBands = pb
-      # ) 
       hc_yAxis_multiples(axis) |> 
       hc_add_series(daux_cl, type = "line", hcaes(x, y, group = name), yAxis = 2) |> 
       hc_add_series(daux_rg, type = "column", hcaes(x, y, group = name), yAxis = 1, color = "#ADD8E6", pointWidth = 10, stacking = 'normal') |> 
-      hc_xAxis(title = list(text = "Fecha"))
+      hc_xAxis(title = list(text = "Fecha")) |> 
+      hc_subtitle(text = daux_pt |> distinct(id) |> pull())
     
+  })
+  
+  observeEvent(input$mapa_shape_click, {
+    cli::cli_inform("mapa_shape_click: {input$mapa_shape_click$id}")
+    # comuna_reactive(input$dash_map_shape_click$id)
+    if(coalesce(input$mapa_shape_click$id, -2) != coalesce(sector(), -1)) sector(input$mapa_shape_click$id)
   })
   
   output$potencial_temporada <- renderHighchart({
@@ -409,10 +433,14 @@ function(input, output, session) {
       data_pt |>filter(fecha == input$fecha),
       by = join_by(id)
     ) |> 
-      st_transform("+init=epsg:4326")
+      st_transform("+init=epsg:4326") |>
+      mutate(potencial = - potencial / 10)
     
     # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
     data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
+    
+    # transformar potencial
+    data_rt_map[[1]] <- - data_rt_map[[1]]/10
     
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
     
@@ -459,6 +487,28 @@ function(input, output, session) {
     }
     
     m
+    
+  })
+  
+  observeEvent(input$hoy, {
+    
+    data_list <- data_list()
+    data_potencial <- data_list$pt
+    opts_fecha <- data_potencial |> 
+      # filter(temporada == input$temporada) |> 
+      distinct(fecha) |> 
+      pull() |>
+      sort()
+    
+    # va a la ultima, no a la actual real.
+    # updateSliderTextInput(session = session,
+    updateDateInput(
+      session = session,
+      inputId = "fecha",
+      value = tail(opts_fecha, 1)
+      # choices = opts_fecha,
+      # selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))
+    )
     
   })
   

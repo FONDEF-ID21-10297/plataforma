@@ -13,11 +13,12 @@ bslib::page_navbar(
       includeScript("www/custom.js"),
       # includeCSS("www/styles.css"),
     ),
+    useBusyIndicators(),
     uiOutput("value_boxes"),
     layout_columns(
       col_widths = c(5, 7),
       card(card_header(uiOutput("txt_mapa_huerto")), full_screen = TRUE, leafletOutput("mapa")),
-      card(card_header("Datos última semana"), full_screen = TRUE, highchartOutput("potencial")),
+      card(card_header("Datos última semana sector"), full_screen = TRUE, highchartOutput("potencial")),
       # card(card_header("Datos meteorológicos del huerto"), full_screen = TRUE, highchartOutput("clima")
       )
     ),

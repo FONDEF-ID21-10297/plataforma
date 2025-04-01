@@ -174,6 +174,8 @@ sidebar_app <- sidebar(
   selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
   # sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))),
   dateInput("fecha", label = "Fecha", value = tail(opts_fecha, 1)),
+  # bslib::input_task_button("hoy", "hoy"),
+  actionButton("hoy", "Hoy", class = "btn-sm btn-primary", style = "font-size:80%", width = "30%"),
   radioGroupButtons(
     inputId = "layer", label = "Mapa", choices = c("Potencial" = "shape", "Estrés" = "raster"),
     justified = TRUE,

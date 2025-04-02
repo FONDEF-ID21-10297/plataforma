@@ -29,57 +29,67 @@ equipo_sector_a_sector_equipo <- function(x = c("a_b", "c_d")){
     })
 }
 
+sector_equipo_a_lbl <- function(x = c("5_3", "4_5")){
+
+  x |> 
+    str_split("_") |> 
+    map_chr(function(l){
+      str_glue("Sector {l[1]} - Equipo {l[2]}")
+    })
+
+}
+
 # data --------------------------------------------------------------------
 huertos_gpks <- fs::dir_ls("data/vectorial/", regexp = ".gpkg")
 huertos_gpks
 
-walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
+# walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
   
-  huerto <- tools::file_path_sans_ext(basename(huerto_gpk))
+#   huerto <- tools::file_path_sans_ext(basename(huerto_gpk))
   
-  cli::cli_h2("Huerto {huerto}")
+#   cli::cli_h2("Huerto {huerto}")
   
-  fout <- str_glue("data/potencial_dataframe/{huerto}.rds")
+#   fout <- str_glue("data/potencial_dataframe/{huerto}.rds")
   
-  if(file.exists(fout)) return(TRUE)
+#   if(file.exists(fout)) return(TRUE)
   
-  cli::cli_inform("Leer gpk: {huerto_gpk}")
+#   cli::cli_inform("Leer gpk: {huerto_gpk}")
   
-  huerto_sf <- read_sf(huerto_gpk, layer = 'sectores_riego') |>
-    st_transform(32719) |>
-    mutate(id = row_number()) |> 
-    mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
-    mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
+#   huerto_sf <- read_sf(huerto_gpk, layer = 'sectores_riego') |>
+#     st_transform(32719) |>
+#     mutate(id = row_number()) |> 
+#     mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
+#     mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
   
-  huerto_sf
+#   huerto_sf
   
-  plot(huerto_sf)
+#   plot(huerto_sf)
   
-  cli::cli_inform("Leer rasters: {huerto_gpk}")
+#   cli::cli_inform("Leer rasters: {huerto_gpk}")
   
-  tif_files <- dir_ls("data/potencial_predict_m/") |> 
-    str_subset(huerto)
+#   tif_files <- dir_ls("data/potencial_predict_m/") |> 
+#     str_subset(huerto)
   
-  potencial <- rast(tif_files)
+#   potencial <- rast(tif_files)
   
-  saveRDS(potencial, str_glue("data/raster_rds/{huerto}.rds"))
+#   saveRDS(potencial, str_glue("data/raster_rds/{huerto}.rds"))
   
-  cli::cli_inform("Variación temporal del potencial: {huerto_gpk}")
+#   cli::cli_inform("Variación temporal del potencial: {huerto_gpk}")
   
-  #variación temporal del potencial en los sectores de riego
-  data <- terra::extract(potencial, huerto_sf, fun = mean)
-  data <- data |> 
-    as_tibble() |> 
-    pivot_longer(-ID, names_to = "fecha", values_to = "potencial") |>
-    mutate(fecha = ymd(fecha)) |> 
-    rename(id = ID)
+#   #variación temporal del potencial en los sectores de riego
+#   data <- terra::extract(potencial, huerto_sf, fun = mean)
+#   data <- data |> 
+#     as_tibble() |> 
+#     pivot_longer(-ID, names_to = "fecha", values_to = "potencial") |>
+#     mutate(fecha = ymd(fecha)) |> 
+#     rename(id = ID)
   
-  data <- data |> 
-    mutate(temporada = fecha_a_temporada(fecha))
+#   data <- data |> 
+#     mutate(temporada = fecha_a_temporada(fecha))
   
-  saveRDS(data, fout)
+#   saveRDS(data, fout)
   
-})
+# })
 
 # options -----------------------------------------------------------------
 newlang_opts <- getOption("highcharter.lang")
@@ -103,7 +113,6 @@ newlang_opts$resetZoom    <- "Resetear zoom"
 
 newlang_opts$thousandsSep <- "."
 newlang_opts$decimalPoint <- ","
-
 
 options(
   highcharter.lang = newlang_opts,
@@ -158,13 +167,14 @@ opts_huertos_names <- opts_huertos |>
 
 opts_huertos <- set_names(opts_huertos, opts_huertos_names)
 
-opts_temporada <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds")) |> 
+opts_temporada <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/potencial-raster/dates.csv", show_col_types = FALSE) |>
+  mutate(temporada = fecha_a_temporada(date)) |> 
   distinct(temporada) |> 
   pull()
 
-opts_fecha <- read_rds(str_glue("data/potencial_dataframe/{opts_huertos[1]}.rds")) |> 
-  filter(temporada == max(temporada)) |> 
-  distinct(fecha) |> 
+opts_fecha <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/potencial-raster/dates.csv", show_col_types = FALSE) |>
+  # filter(temporada == max(temporada)) |> 
+  distinct(date) |> 
   pull()
 
 sidebar_app <- sidebar(

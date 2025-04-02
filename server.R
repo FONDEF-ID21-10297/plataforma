@@ -1,13 +1,15 @@
 # source("global.R")
 # input <- list(
-#   huerto = "la_esperanza",
-#   temporada = "2023-24",
+#   huerto = "rio_claro",
+#   temporada = "2024-25",
 #   # fecha = c("2024-04-15", "2024-04-28")
-#   fecha = "2024-04-28"
+#   fecha = "2025-04-02"
 # )
 
 function(input, output, session) {
   
+  data_potencial_repo <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/potencial-csv/potencial-sites.csv", show_col_types = FALSE)
+  data_clima_repo     <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/climate/climate-sites.csv", show_col_types = FALSE) 
   # showModal(
   #   modalDialog(
   #     # title = tags$small("Bienvenido al"),
@@ -32,49 +34,41 @@ function(input, output, session) {
     
     # datas
     data_sf <- read_sf(str_glue("data/vectorial/{input$huerto}.gpkg"), layer = 'sectores_riego') |>
-      st_transform(32719)
+      st_transform(32719) |> 
+      mutate(id = row_number()) |> 
+      mutate(
+        equipo_sector = coalesce(equipo_sector, "1_6"),
+        sector_equipo = equipo_sector_a_sector_equipo(equipo_sector),
+        sector_equipo_lbl = sector_equipo_a_lbl(sector_equipo)
+      ) 
     
-    data_potencial <- read_rds(str_glue("data/potencial_dataframe/{input$huerto}.rds")) |> 
+    data_potencial <- data_potencial_repo |>
+      filter(site == input$huerto) |> 
+      mutate(temporada = fecha_a_temporada(date)) |> 
       filter(temporada == input$temporada) 
     
-    data_raster <- read_rds(str_glue("data/raster_rds/{input$huerto}.rds")) |> 
-      terra::unwrap()
+    # data_raster <- read_rds(str_glue("data/raster_rds/{input$huerto}.rds")) |> 
+    #   terra::unwrap()
     
     data_umbral <- read_rds("data/umbral_tlp.rds") |>
       filter(sitio == input$huerto)  |> 
       mutate(across(everything(), function(x) set_names(x, NULL)))
     
-    # data_etc <- readRDS("data/ETc.rds")
-    # 
-    # # input$fecha <- "2022-11-15"
-    # data_etc |> 
-    #   filter(sitio == input$huerto) |> 
-    #   arrange(sector_id, fecha) |> 
-    #   filter(between(fecha, ymd(input$fecha) - days(2), ymd(input$fecha))) |> 
-    #   group_by(sector_id) |> 
-    #   summarise(
-    #     fecha = max(fecha),
-    #     t_horas = sum(ETc, na.rm = TRUE)/2
-    #   ) |> 
-    #   mutate(
-    #     t_min = t_horas * 60 
-    #   )
-    # 
-    data_clima <- readRDS("data/clima_dia.rds") |> 
+    data_clima <- data_clima_repo |> 
       mutate(
-        fecha = ymd(fecha),
+        fecha = date,
         temporada = fecha_a_temporada(fecha)
         ) |> 
       filter(temporada == input$temporada) |>
-      filter(sitio == input$huerto) 
+      filter(site == input$huerto) 
     
-    data_potencial |> summarise(min(fecha), max(fecha))
-    data_clima     |> summarise(min(fecha), max(fecha))
+    data_potencial |> summarise(min(date), max(date))
+    data_clima     |> summarise(min(date), max(date))
     
     # previo a enviar datos actualizar select: temporada y fecha 
     opts_fecha <- data_potencial |> 
       # filter(temporada == input$temporada) |> 
-      distinct(fecha) |> 
+      distinct(date) |> 
       pull() |>
       sort()
     
@@ -90,7 +84,7 @@ function(input, output, session) {
     data_list <- list(
       sf = data_sf, 
       pt = data_potencial, 
-      rt = data_raster,
+      # rt = data_raster,
       um = data_umbral,
       cl = data_clima
     )
@@ -110,42 +104,63 @@ function(input, output, session) {
     data_list <- data_list()
     
     daux <- data_list$pt |> 
-      filter(fecha == input$fecha) |> 
-      mutate(potencial = -potencial / 10) |> 
+      filter(date == input$fecha) |> 
+      left_join(st_drop_geometry(data_list$sf), by = join_by(id)) |>
+      separate(sector_equipo_lbl, c("sector", "equipo"), sep = " - ") |> 
       mutate(
         cat = cut(
           potencial,
           c(-Inf,  data_list$um$u_maximo, data_list$um$u_minimo, Inf),
           labels = c("malo", "intermedio", "bueno")
           )
-        ) |> 
-      count(cat) |> 
-      tidyr::complete(cat, fill = list(n = 0)) |> 
-      deframe() |> 
-      as.list()
-    
+      ) |> 
+      group_by(cat, sector) |> 
+      summarise(
+        n = n(),
+        equipos = str_c(equipo, collapse = ", ")
+      ) |> 
+      mutate(
+        equipos = str_remove(equipos, " Equipo"),
+        equipos = str_replace(equipos, "Equipo", "Equipo(s)"),
+        sec_equipos = str_c(sector, equipos, sep = " ")
+      ) |> 
+      group_by(cat) |> 
+      summarise(
+        n = sum(n),
+        secs_equipos = tagList(map(sec_equipos, function(x) tags$small(x, tags$br())))
+      ) |> 
+      tidyr::complete(cat, fill = list(n = 0)) 
+
+    daux1 <- daux |> select(cat, n) |> deframe() |> as.list()
+    daux2 <- daux |> select(cat, secs_equipos) |> deframe() |> as.list()
+ 
     vb1 <- value_box(
       theme = value_box_theme(bg = colors_lvl[1], fg = "white"),
-      title = NULL,
-      value = daux$bueno, "sectores sin estrés",
+      title = "Sectores sin estrés",
+      value = daux1$bueno,
+      # tags$small(daux2$bueno),
       showcase = bs_icon("droplet-fill", class = "text-primary")
     )
-    
+
     vb2 <- value_box(
       theme = value_box_theme(bg = colors_lvl[2], fg = "white"),
-      title = NULL,
-      value = daux$intermedio, "sectores con estrés moderado",
+      title = "Sectores estrés moderado",
+      value = daux1$intermedio,
+      tags$small(daux2$intermedio),
       showcase = bs_icon("droplet-half", class = "text-primary")
     )
+
+    vb2
     
     vb3 <- value_box(
       theme = value_box_theme(bg = colors_lvl[3], fg = "white"),
-      title = NULL,
-      value = daux$malo, "sectores con estrés severo",
+      title = "Sectores estrés severo",
+      value = daux1$malo, 
+      tags$small(daux2$malo),
       showcase = bs_icon("droplet", class = "text-primary")
     )
     
-    layout_columns(vb1, vb2, vb3)
+    layout_columns(vb3, vb2, vb1)
     
   })
   
@@ -155,27 +170,29 @@ function(input, output, session) {
     
     data_sf <- data_list$sf
     data_pt <- data_list$pt
-    data_rt <- data_list$rt
-    
-    data_sf <- data_sf |> 
-      mutate(id = row_number()) |> 
-      mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
-      mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
+    # data_rt <- data_list$rt
     
     data_sf_map <- left_join(
       data_sf,
-      data_pt |> filter(fecha == input$fecha),
+      data_pt |> filter(date == input$fecha),
       # data_pt |> filter(fecha == input$fecha[2]),
       by = join_by(id)
     ) |> 
       st_transform("+init=epsg:4326") |>
-      mutate(potencial = - potencial / 10)
+      identity()
+      # mutate(potencial = - potencial / 10)
+    
+    if(interactive()) plot(data_sf_map)
     
     # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
-    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
+    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
+
+    data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
+    
+    if(interactive()) plot(data_rt_map)
     
     # transformar potencial
-    data_rt_map[[1]] <- - data_rt_map[[1]]/10 
+    # data_rt_map[[1]] <- - data_rt_map[[1]]/10 
     
     m <- leaflet() |> 
       # addTiles() |>
@@ -203,7 +220,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
-          label            =  ~ str_glue("Sector/equipo: {sector_equipo}\nPotencial {round(potencial,2)}")
+          label            =  ~ str_glue("{sector_equipo_lbl}\nPotencial {round(potencial,2)}")
         ) |>
         identity()
       
@@ -267,26 +284,30 @@ function(input, output, session) {
     
     # days
     fmax <- ymd(input$fecha)
-    fmin <- ymd(input$fecha) - days(7 - 1)
-    
+    fmin <- ymd(input$fecha) - days(7 + 0)
     
     # data potential
     daux_pt <- data_list$pt |> 
       # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
-      filter(fmin <= fecha, fecha <= fmax) |>
-      mutate(potencial = -potencial / 10) 
+      filter(fmin <= date, date <= fmax) 
     
     # seleccionamos sector o el minimo si es que no está definido
     sec <- sector()
     sec <- coalesce(
       sec,
-      daux_pt |> filter(fecha == max(fecha)) |> filter(potencial == min(potencial)) |> pull(id)
+      daux_pt |> filter(date == max(date)) |> filter(potencial == min(potencial)) |> pull(id)
       )
     
     daux_pt <- daux_pt |> 
-      filter(id == sec) |>  
-      mutate(id = str_glue("Sector {id}"))
-    
+      filter(id == sec) |> 
+      left_join(
+        data_list$sf |>
+          st_drop_geometry() |> 
+          select(id, sector_equipo),
+        by = join_by(id)
+      ) |> 
+      mutate(sector_equipo_lbl = sector_equipo_a_lbl(sector_equipo))
+
     axis[[4]]$tickPositioner = JS(
       "function(min,max){
                var data = this.chart.yAxis[0].series[0].processedYData;
@@ -297,38 +318,38 @@ function(input, output, session) {
     
     # data clima
     daux_cl <- data_list$cl |> 
-      filter(fmin <= fecha, fecha <= fmax) |> 
+      filter(fmin <= date, date <= fmax) |> 
       select(
-        fecha,
+        date,
         temp_media = t_media,
         evapotransipracion_ref = eto,
         deficiencia_presión_vapor_promedio = vpd_medio
         ) |>
-      pivot_longer(cols = -fecha) |>
-      mutate(fecha = highcharter::datetime_to_timestamp(fecha)) |>
+      pivot_longer(cols = -date) |>
+      mutate(date = highcharter::datetime_to_timestamp(date)) |>
       mutate(
         name = str_replace_all(name, "_", " "),
         name = str_to_title(name)
         ) |> 
-      rename(x = fecha, y = value)
+      rename(x = date, y = value)
     
     # data riego 
     set.seed(fmax)
     daux_rg <- daux_pt |> 
-      select(name = id, x = fecha) |> 
+      select(name = sector_equipo_lbl, x = date) |> 
       mutate(x = datetime_to_timestamp(x)) |> 
       mutate(y = 100 * runif(n(), 0, 1) * rbinom(1, n = n(), p = 0.1)) |> 
       filter(y > 0) |> 
       mutate(name = str_glue("Riesgo en {name}"))
     
-    hchart(daux_pt, "line", hcaes(fecha, potencial, group = id), animation = TRUE) |> 
+    hchart(daux_pt, "line", hcaes(date, potencial, group = sector_equipo_lbl), animation = TRUE) |> 
       hc_tooltip(sort = FALSE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
       hc_yAxis_multiples(axis) |> 
       hc_add_series(daux_cl, type = "line", hcaes(x, y, group = name), yAxis = 2) |> 
       hc_add_series(daux_rg, type = "column", hcaes(x, y, group = name), yAxis = 1, color = "#ADD8E6", pointWidth = 10, stacking = 'normal') |> 
       hc_xAxis(title = list(text = "Fecha")) |> 
-      hc_subtitle(text = daux_pt |> distinct(id) |> pull())
+      hc_subtitle(text = daux_pt |> distinct(sector_equipo_lbl) |> pull())
     
   })
   
@@ -346,8 +367,8 @@ function(input, output, session) {
       filter(temporada == input$temporada) |> 
       # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |>
       # filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |>
-      mutate(potencial = -potencial / 10) |> 
-      hchart("line", hcaes(fecha, potencial, group = id)) |> 
+      # mutate(potencial = -potencial / 10) |> 
+      hchart("line", hcaes(date, potencial, group = id)) |> 
       hc_tooltip(sort = TRUE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
       hc_yAxis(
@@ -421,26 +442,24 @@ function(input, output, session) {
     data_sf <- data_list$sf
     data_pt <- data_list$pt
     data_rt <- data_list$rt
-    
-    data_sf <- data_sf |> 
-      mutate(id = row_number()) |> 
-      mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
-      mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
-    
+   
     data_sf_map <- left_join(
       data_sf,
       # data_pt |>filter(fecha == input$fecha[2]),
-      data_pt |>filter(fecha == input$fecha),
+      data_pt |> filter(date == input$fecha),
       by = join_by(id)
     ) |> 
       st_transform("+init=epsg:4326") |>
-      mutate(potencial = - potencial / 10)
+      # mutate(potencial = - potencial / 10) 
+      identity()
     
     # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
-    data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
+    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
     
     # transformar potencial
-    data_rt_map[[1]] <- - data_rt_map[[1]]/10
+    # data_rt_map[[1]] <- - data_rt_map[[1]]/10
+    data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
+    if(interactive()) plot(data_rt_map)
     
     pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
     
@@ -469,7 +488,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
-          label            =  ~ str_glue("Sector/equipo: {sector_equipo}\nPotencial {round(potencial,2)}")
+          label            =  ~ str_glue("{sector_equipo_lbl}\nPotencial {round(potencial,2)}")
         ) |>
         identity()
       
@@ -496,7 +515,7 @@ function(input, output, session) {
     data_potencial <- data_list$pt
     opts_fecha <- data_potencial |> 
       # filter(temporada == input$temporada) |> 
-      distinct(fecha) |> 
+      distinct(date) |> 
       pull() |>
       sort()
     

@@ -3,24 +3,14 @@
 #   huerto = "rio_claro",
 #   temporada = "2024-25",
 #   # fecha = c("2024-04-15", "2024-04-28")
-#   fecha = "2025-04-02"
+#   fecha = "2025-04-02",
+#   layer = "nivel"
 # )
 
 function(input, output, session) {
   
   data_potencial_repo <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/potencial-csv/potencial-sites.csv", show_col_types = FALSE)
   data_clima_repo     <- read_csv("https://raw.githubusercontent.com/FONDEF-ID21-10297/datos_plataforma_gha/refs/heads/main/data/climate/climate-sites.csv", show_col_types = FALSE) 
-  # showModal(
-  #   modalDialog(
-  #     # title = tags$small("Bienvenido al"),
-  #     tags$p("Bienvenido a ", tags$strong("SATORI")),
-  #     tags$hr(),
-  #     tags$p("SATORI es una herramienta que permite analizar el potencial de riego en huertos a lo largo de distintas temporadas."),
-  #     tags$p("Selecciona un huerto, define el rango de fechas y accede a visualizaciones detalladas en un mapa interactivo y una línea temporal, ayudando a optimizar decisiones agrícolas con datos precisos y en tiempo real."),
-  #     easyClose = TRUE,
-  #     footer = NULL
-  #   )
-  # )
 
   # data --------------------------------------------------------------------
   # variable que señala que sector graficar
@@ -95,26 +85,46 @@ function(input, output, session) {
     # data cambia con HUERTO
     bindEvent(input$huerto, input$temporada)
   
+  data_list_fecha <- reactive({
+
+    data_list <- data_list()
+
+    # st_transform(32719) 
+    # st_transform("+init=epsg:4326") 
+    
+    data_sf_map <- data_list$sf |> 
+      left_join(data_list$pt |> filter(date == input$fecha), by = join_by(id)) |> 
+      separate(sector_equipo_lbl, c("sector", "equipo"), sep = " - ") |> 
+      mutate(
+        nivel = cut(
+          potencial,
+          c(-Inf,  data_list$um$u_maximo, data_list$um$u_minimo, Inf),
+          labels = c("Severo", "Intermedio", "Sin estrés")
+          )
+      )
+    
+    data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
+  
+    data_list_fecha <- list(
+      data_sf_map = data_sf_map,
+      data_rt_map = data_rt_map
+    )
+
+    data_list_fecha
+      
+  }) 
+  
   output$txt_mapa_huerto <- renderUI({
     str_glue("Mapa del huerto {names(which(input$huerto == opts_huertos))} para {max(input$fecha)}")
   })
   
   output$value_boxes <- renderUI({
     
-    data_list <- data_list()
+    data_list_fecha <- data_list_fecha()
     
-    daux <- data_list$pt |> 
-      filter(date == input$fecha) |> 
-      left_join(st_drop_geometry(data_list$sf), by = join_by(id)) |>
-      separate(sector_equipo_lbl, c("sector", "equipo"), sep = " - ") |> 
-      mutate(
-        cat = cut(
-          potencial,
-          c(-Inf,  data_list$um$u_maximo, data_list$um$u_minimo, Inf),
-          labels = c("malo", "intermedio", "bueno")
-          )
-      ) |> 
-      group_by(cat, sector) |> 
+    daux <- data_list_fecha$data_sf_map |>
+      st_drop_geometry() |> 
+      group_by(nivel, sector) |> 
       summarise(
         n = n(),
         equipos = str_c(equipo, collapse = ", ")
@@ -124,20 +134,20 @@ function(input, output, session) {
         equipos = str_replace(equipos, "Equipo", "Equipo(s)"),
         sec_equipos = str_c(sector, equipos, sep = " ")
       ) |> 
-      group_by(cat) |> 
+      group_by(nivel) |> 
       summarise(
         n = sum(n),
         secs_equipos = tagList(map(sec_equipos, function(x) tags$small(x, tags$br())))
       ) |> 
-      tidyr::complete(cat, fill = list(n = 0)) 
+      tidyr::complete(nivel, fill = list(n = 0)) 
 
-    daux1 <- daux |> select(cat, n) |> deframe() |> as.list()
-    daux2 <- daux |> select(cat, secs_equipos) |> deframe() |> as.list()
+    daux1 <- daux |> select(nivel, n) |> deframe() |> as.list()
+    daux2 <- daux |> select(nivel, secs_equipos) |> deframe() |> as.list()
  
     vb1 <- value_box(
       theme = value_box_theme(bg = colors_lvl[1], fg = "white"),
       title = "Sectores sin estrés",
-      value = daux1$bueno,
+      value = daux1$Bueno,
       # tags$small(daux2$bueno),
       showcase = bs_icon("droplet-fill", class = "text-primary")
     )
@@ -166,47 +176,31 @@ function(input, output, session) {
   
   output$mapa <- renderLeaflet({
     
-    data_list <- data_list()
-    
-    data_sf <- data_list$sf
-    data_pt <- data_list$pt
-    # data_rt <- data_list$rt
-    
-    data_sf_map <- left_join(
-      data_sf,
-      data_pt |> filter(date == input$fecha),
-      # data_pt |> filter(fecha == input$fecha[2]),
-      by = join_by(id)
-    ) |> 
-      st_transform("+init=epsg:4326") |>
-      identity()
-      # mutate(potencial = - potencial / 10)
-    
-    if(interactive()) plot(data_sf_map)
-    
-    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
-    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
-
-    data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
-    
-    if(interactive()) plot(data_rt_map)
-    
-    # transformar potencial
-    # data_rt_map[[1]] <- - data_rt_map[[1]]/10 
+    data_list_fecha <- data_list_fecha()
+      
+    if(interactive()) plot(data_list_fecha$data_sf_map) 
+    if(interactive()) plot(data_list_fecha$data_rt_map)
     
     m <- leaflet() |> 
-      # addTiles() |>
       addProviderTiles(providers$Esri.WorldImagery) |>
       clearGroup(group = "layer") |>
       clearControls() |> # remueve la Legenda
       identity()
+
+    cli::cli_inform("output$mapa  {input$shape}")
     
-    if(isolate(input$layer == "shape")) {
+    input_layer <- isolate(input$layer)
+
+    if(input_layer == "shape") {
       
-      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
-                          # values(data_rt_map),
-                          data_sf_map$potencial,
-                          na.color = "transparent")
+      data_sf_map <- data_list_fecha$data_sf_map |> 
+        st_transform("+init=epsg:4326")
+
+      pal <- colorNumeric(
+        c("#0C2C84", "#41B6C4", "#FFFFCC"),
+        data_sf_map$potencial,
+        na.color = "transparent"
+      )
       
       m <- m |> 
         addLegend(pal = pal, values =  data_sf_map$potencial, title = "Potencial") |> 
@@ -219,25 +213,61 @@ function(input, output, session) {
           stroke           = NULL,
           fillOpacity      = 0.7,
           layerId          = ~ id,
-          # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
-          label            =  ~ str_glue("{sector_equipo_lbl}\nPotencial {round(potencial,2)}")
+          label            =  ~ str_glue("{sector} {equipo} Potencial {round(potencial,2)}"),
+          labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()
+
+      m
+    } else if (input_layer == "nivel") {
       
+      data_sf_map <- data_list_fecha$data_sf_map |> 
+        st_transform("+init=epsg:4326")
+      
+      pal <- colorFactor(
+        palette = rev(colors_lvl),
+        domain = data_sf_map$nivel,
+        na.color = "#ccc"
+      )
+      
+      m <- m |> 
+        addLegend(pal = pal, values =  data_sf_map$nivel, title = "Nivel") |> 
+        leaflet::addPolygons(
+          group = "layer",
+          data = data_sf_map,
+          fillColor        = ~ pal(data_sf_map$nivel),
+          weight           = .5,
+          dashArray        = "3",
+          stroke           = NULL,
+          fillOpacity      = 0.7,
+          layerId          = ~ id,
+          label            =  ~ str_glue("{sector} {equipo} {nivel}"),
+          labelOptions = labelOptions(style = lbl_opts_style)
+        ) |>
+        identity()
+
+      m
+
     } else {
       
-      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
-                          values(data_rt_map),
-                          # data_sf_map$potencial,
-                          na.color = "transparent")
+      data_rt_map <- data_list_fecha$data_rt_map
+
+      pal <- colorNumeric(
+        c("#0C2C84", "#41B6C4", "#FFFFCC"),
+        values(data_rt_map),
+        na.color = "transparent"
+      )
       
       m <- m |> 
         addLegend(pal = pal, values =   values(data_rt_map), title = "Potencial") |> 
         addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
         identity()
+
+      m
+
     }
     
-    m
+    m    
     
   })
   
@@ -252,35 +282,35 @@ function(input, output, session) {
       list(
         from = data_list$um$u_minimo,
         to = 100,
-        color = "#8CD47E44"
+        color = "#8CD47E88"
       ),
       list(
         from = data_list$um$u_maximo,
         to = data_list$um$u_minimo,
-        color = "#F8D66D44"
+        color = "#F8D66D88"
       ),
       list(
         from = -5,
         to = data_list$um$u_maximo,
-        color = "#FF696144"
+        color = "#FF696188"
       )
     )
     
     # axis
     # modificacion: se crean 4 para que la ultima se paree con la primera
-    axis <- create_axis(naxis = 3, lineWidth = 2, title = list(text = NULL), heights = c(2, 1, 1))
+    axis <- create_axis(naxis = 2, lineWidth = 2, title = list(text = NULL))
     axis[[1]]$plotBands <- pb
     axis[[1]]$min       <- -3
     axis[[1]]$max       <- 0
     
     axis[[1]]$title     <- list(text = "Potencial")
-    axis[[2]]$title     <- list(text = "Cantidad Riesgo")
-    axis[[3]]$title     <- list(text = "Datos Meteorológicos")
+    # axis[[2]]$title     <- list(text = "Cantidad Riesgo")
+    axis[[2]]$title     <- list(text = "Datos Meteorológicos")
     
-    axis[[4]] <- axis[[1]]
-    axis[[4]]$linkedTo <- 0
-    axis[[4]]$opposite <- TRUE
-    axis[[4]]$title <- list(text = "")
+    axis[[3]] <- axis[[1]]
+    axis[[3]]$linkedTo <- 0
+    axis[[3]]$opposite <- TRUE
+    axis[[3]]$title <- list(text = "")
     
     # days
     fmax <- ymd(input$fecha)
@@ -308,7 +338,7 @@ function(input, output, session) {
       ) |> 
       mutate(sector_equipo_lbl = sector_equipo_a_lbl(sector_equipo))
 
-    axis[[4]]$tickPositioner = JS(
+    axis[[3]]$tickPositioner = JS(
       "function(min,max){
                var data = this.chart.yAxis[0].series[0].processedYData;
                //last point
@@ -334,20 +364,20 @@ function(input, output, session) {
       rename(x = date, y = value)
     
     # data riego 
-    set.seed(fmax)
-    daux_rg <- daux_pt |> 
-      select(name = sector_equipo_lbl, x = date) |> 
-      mutate(x = datetime_to_timestamp(x)) |> 
-      mutate(y = 100 * runif(n(), 0, 1) * rbinom(1, n = n(), p = 0.1)) |> 
-      filter(y > 0) |> 
-      mutate(name = str_glue("Riesgo en {name}"))
+    # set.seed(fmax)
+    # daux_rg <- daux_pt |> 
+    #   select(name = sector_equipo_lbl, x = date) |> 
+    #   mutate(x = datetime_to_timestamp(x)) |> 
+    #   mutate(y = 100 * runif(n(), 0, 1) * rbinom(1, n = n(), p = 0.1)) |> 
+    #   filter(y > 0) |> 
+    #   mutate(name = str_glue("Riesgo en {name}"))
     
-    hchart(daux_pt, "line", hcaes(date, potencial, group = sector_equipo_lbl), animation = TRUE) |> 
+    hchart(daux_pt, "line", hcaes(date, potencial, group = sector_equipo_lbl), animation = TRUE, lineWidth = 4) |> 
       hc_tooltip(sort = FALSE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
       hc_yAxis_multiples(axis) |> 
-      hc_add_series(daux_cl, type = "line", hcaes(x, y, group = name), yAxis = 2) |> 
-      hc_add_series(daux_rg, type = "column", hcaes(x, y, group = name), yAxis = 1, color = "#ADD8E6", pointWidth = 10, stacking = 'normal') |> 
+      hc_add_series(daux_cl, type = "line", hcaes(x, y, group = name), yAxis = 1, lineWidth = 4) |> 
+      # hc_add_series(daux_rg, type = "column", hcaes(x, y, group = name), yAxis = 1, color = "#ADD8E6", pointWidth = 10, stacking = 'normal') |> 
       hc_xAxis(title = list(text = "Fecha")) |> 
       hc_subtitle(text = daux_pt |> distinct(sector_equipo_lbl) |> pull())
     
@@ -397,84 +427,33 @@ function(input, output, session) {
     
   })
   
-  output$clima <-  renderHighchart({
-    
-    # data_list <- data_list()
-    # 
-    # fechas <- data_list$pt |>
-    #   filter(between(fecha, ymd(min(input$fecha)), ymd(min(input$fecha)))) |> 
-    #   # filter(temporada == max(temporada)) |> 
-    #   # filter(fecha >= (max(fecha) - days(14))) |> 
-    #   # filter(between(fecha) >= (max(fecha) - days(14))) |> 
-    #   summarise(min(fecha), max(fecha)) |> 
-    #   as.list()
-    # 
-    # readRDS("data/clima_dia.rds") |> count(temporada)
-    # 
-    # readRDS("data/clima_dia.rds") |> 
-    #   # filter(temporada == max(temporada)) |> 
-    #   filter(sitio == input$huerto) |> 
-    #   # filter(ymd(min(input$fecha)) <= fecha, fecha <= ymd(max(input$fecha))) |> 
-    #   filter(ymd(input$fecha) - days(7 - 1) <= fecha, fecha <= ymd(input$fecha)) |> 
-    #   select(fecha, temperatura_media = t_media, evapotransipracion_referencia = eto,
-    #          deficiencia_de_presión_de_vapor_promedio = vpd_medio) |> 
-    #   pivot_longer(cols = -fecha) |> 
-    #   mutate(fecha = ymd(fecha)) |> 
-    #   mutate(
-    #     name = str_replace_all(name, "_", " "),
-    #     name = str_to_title(name)
-    #   ) |> 
-    #   hchart("line", hcaes(fecha, value, group = name)) |> 
-    #   hc_plotOptions(series = list(animation = FALSE)) |> 
-    #   hc_tooltip(valueDecimals = 2, table = TRUE) |> 
-    #   hc_yAxis(title = list(text = "")) |> 
-    #   hc_xAxis(title = list(text = "Fecha")) 
-    
-  })
-  
   observeEvent(c(input$fecha, input$layer), {
     
     cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha[2]}"))
     cli::cli_inform(str_glue("observeEvent inpt$fecha: {input$fecha}"))
     
-    data_list <- data_list()
+    data_list_fecha <- data_list_fecha()
+      
+    if(interactive()) plot(data_list_fecha$data_sf_map) 
+    if(interactive()) plot(data_list_fecha$data_rt_map)
     
-    data_sf <- data_list$sf
-    data_pt <- data_list$pt
-    data_rt <- data_list$rt
-   
-    data_sf_map <- left_join(
-      data_sf,
-      # data_pt |>filter(fecha == input$fecha[2]),
-      data_pt |> filter(date == input$fecha),
-      by = join_by(id)
-    ) |> 
-      st_transform("+init=epsg:4326") |>
-      # mutate(potencial = - potencial / 10) 
-      identity()
-    
-    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha[2])]]
-    # data_rt_map <- data_rt[[which(names(data_rt) == input$fecha)]]
-    
-    # transformar potencial
-    # data_rt_map[[1]] <- - data_rt_map[[1]]/10
-    data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
-    if(interactive()) plot(data_rt_map)
-    
-    pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), values(data_rt_map), na.color = "transparent")
-    
-    m <- leafletProxy("mapa") |>
+    m <-  leafletProxy("mapa") |>
       # leaflet() |> addTiles() |>
+      # addProviderTiles(providers$Esri.WorldImagery) |>
       clearGroup(group = "layer") |>
-      clearControls() |> 
+      clearControls() |> # remueve la Legenda
       identity()
     
     if(input$layer == "shape") {
       
-      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
-                          # values(data_rt_map),
-                          data_sf_map$potencial,
-                          na.color = "transparent")
+      data_sf_map <- data_list_fecha$data_sf_map |> 
+        st_transform("+init=epsg:4326")
+
+      pal <- colorNumeric(
+        c("#0C2C84", "#41B6C4", "#FFFFCC"),
+        data_sf_map$potencial,
+        na.color = "transparent"
+      )
       
       m <- m |> 
         addLegend(pal = pal, values =  data_sf_map$potencial, title = "Potencial") |> 
@@ -487,22 +466,58 @@ function(input, output, session) {
           stroke           = NULL,
           fillOpacity      = 0.7,
           layerId          = ~ id,
-          # popup            = ~ str_glue("Sector/equipo: {sector_equipo}<br/>Potencial {round(potencial,2)}"),
-          label            =  ~ str_glue("{sector_equipo_lbl}\nPotencial {round(potencial,2)}")
+          label            =  ~ str_glue("{sector} {equipo} Potencial {round(potencial,2)}"),
+          labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()
+
+      m
+    } else if (input$layer == "nivel") {
       
+      data_sf_map <- data_list_fecha$data_sf_map |> 
+        st_transform("+init=epsg:4326")
+      
+      pal <- colorFactor(
+        palette = rev(colors_lvl),
+        domain = data_sf_map$nivel,
+        na.color = "#ccc"
+      )
+      
+      m <- m |> 
+        addLegend(pal = pal, values =  data_sf_map$nivel, title = "Nivel") |> 
+        leaflet::addPolygons(
+          group = "layer",
+          data = data_sf_map,
+          fillColor        = ~ pal(data_sf_map$nivel),
+          weight           = .5,
+          dashArray        = "3",
+          stroke           = NULL,
+          fillOpacity      = 0.7,
+          layerId          = ~ id,
+          label            =  ~ str_glue("{sector} {equipo} {nivel}"),
+          labelOptions = labelOptions(style = lbl_opts_style)
+        ) |>
+        identity()
+
+      m
+
     } else {
       
-      pal <- colorNumeric(c("#0C2C84", "#41B6C4", "#FFFFCC"), 
-                          values(data_rt_map),
-                          # data_sf_map$potencial,
-                          na.color = "transparent")
+      data_rt_map <- data_list_fecha$data_rt_map
+
+      pal <- colorNumeric(
+        c("#0C2C84", "#41B6C4", "#FFFFCC"),
+        values(data_rt_map),
+        na.color = "transparent"
+      )
       
       m <- m |> 
         addLegend(pal = pal, values =   values(data_rt_map), title = "Potencial") |> 
         addRasterImage(data_rt_map, colors = pal, opacity = 0.8, group = "layer") |> 
         identity()
+
+      m
+
     }
     
     m
@@ -513,18 +528,20 @@ function(input, output, session) {
     
     data_list <- data_list()
     data_potencial <- data_list$pt
-    opts_fecha <- data_potencial |> 
-      # filter(temporada == input$temporada) |> 
-      distinct(date) |> 
-      pull() |>
-      sort()
+    data_potencial_last <- data_potencial |> 
+      tail(1)
     
     # va a la ultima, no a la actual real.
     # updateSliderTextInput(session = session,
+    updateSelectInput(
+      session = session, 
+      inbputId = "temporada",
+      selected = data_potencial_last$temporada
+    )
     updateDateInput(
       session = session,
       inputId = "fecha",
-      value = tail(opts_fecha, 1)
+      value = data_potencial_last$date,
       # choices = opts_fecha,
       # selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))
     )

@@ -10,6 +10,8 @@ library(fs)
 library(highcharter)
 library(bsicons)
 
+options(bslib.color_contrast_warnings = FALSE)
+
 # helpers -----------------------------------------------------------------
 fecha_a_temporada <- function(x =  as.Date(c("2022-05-15", "2022-07-01", "2022-01-01"))){
   
@@ -42,54 +44,6 @@ sector_equipo_a_lbl <- function(x = c("5_3", "4_5")){
 # data --------------------------------------------------------------------
 huertos_gpks <- fs::dir_ls("data/vectorial/", regexp = ".gpkg")
 huertos_gpks
-
-# walk(huertos_gpks, function(huerto_gpk = "data/vectorial/la_esperanza.gpkg"){
-  
-#   huerto <- tools::file_path_sans_ext(basename(huerto_gpk))
-  
-#   cli::cli_h2("Huerto {huerto}")
-  
-#   fout <- str_glue("data/potencial_dataframe/{huerto}.rds")
-  
-#   if(file.exists(fout)) return(TRUE)
-  
-#   cli::cli_inform("Leer gpk: {huerto_gpk}")
-  
-#   huerto_sf <- read_sf(huerto_gpk, layer = 'sectores_riego') |>
-#     st_transform(32719) |>
-#     mutate(id = row_number()) |> 
-#     mutate(equipo_sector = coalesce(equipo_sector, "1_6")) |> 
-#     mutate(sector_equipo = equipo_sector_a_sector_equipo(equipo_sector))
-  
-#   huerto_sf
-  
-#   plot(huerto_sf)
-  
-#   cli::cli_inform("Leer rasters: {huerto_gpk}")
-  
-#   tif_files <- dir_ls("data/potencial_predict_m/") |> 
-#     str_subset(huerto)
-  
-#   potencial <- rast(tif_files)
-  
-#   saveRDS(potencial, str_glue("data/raster_rds/{huerto}.rds"))
-  
-#   cli::cli_inform("Variación temporal del potencial: {huerto_gpk}")
-  
-#   #variación temporal del potencial en los sectores de riego
-#   data <- terra::extract(potencial, huerto_sf, fun = mean)
-#   data <- data |> 
-#     as_tibble() |> 
-#     pivot_longer(-ID, names_to = "fecha", values_to = "potencial") |>
-#     mutate(fecha = ymd(fecha)) |> 
-#     rename(id = ID)
-  
-#   data <- data |> 
-#     mutate(temporada = fecha_a_temporada(fecha))
-  
-#   saveRDS(data, fout)
-  
-# })
 
 # options -----------------------------------------------------------------
 newlang_opts <- getOption("highcharter.lang")
@@ -133,28 +87,21 @@ colors_app <- c("#d01407", "#31683f", "#064aac")
 colors_lvl <- c("#8CD47E", "#F8D66D", "#FF6961")
 
 theme_app <- bs_theme(
-  # primary ="#31683f",
+  primary ="#3457D5",
   fg = "#454545",
   bg = "white",
-  base_font = font_google("Inria Sans"),
-  # `navbar-light-contrast` =
-  # "navbar-bg" = "green",                    # works
-  # "navbar-brand-color" = "red !important",  # does not work!!!
-  # "navbar-brand-hover-color" = "salmon !important", # does not work!!!
-  # "navbar-active-color" = "gray !important", # does not work!!!
-  # "nav-text-color" = "blue !important",
-  "nav-link-color" = "#31683f",   # works
-  # "nav-link-hover-color" = "orange !important", # works
+  base_font = font_google("Inria Sans")
 ) |>
-  # bs_add_rules(
-  #   # "body { background-color: $body-bg; }"
-  #   # sass::sass_file("www/mdb.min.css")
-  #   sass::as_sass(readLines("www/mdb.min.css"))
-  #   ) |> 
-  # bs_add_variables(
-  #   "--bs-primary" = "#31683f"
-  # ) |> 
   identity()
+
+lbl_opts_style <- list(
+  "font-family"  = "Inria Sans",
+  "box-shadow"   = "2px 2px rgba(0,0,0,0.15)",
+  "font-size"    = "10px",
+  "padding"      = "10px",
+  "z-index" = 10000,
+  "border-color" = "rgba(0,0,0,0.15)"
+)
 
 # sidebar -----------------------------------------------------------------
 opts_huertos <- huertos_gpks |>
@@ -182,12 +129,12 @@ sidebar_app <- sidebar(
   tags$strong("Panel de control"),
   selectizeInput("huerto", label = "Huerto", choices = opts_huertos),
   selectizeInput("temporada", label = "Temporada", choices = opts_temporada, selected = max(opts_temporada)),
-  # sliderTextInput("fecha", "Fecha", choices = opts_fecha, selected = c(tail(opts_fecha, 8 * 7)[1], tail(opts_fecha, 1))),
   dateInput("fecha", label = "Fecha", value = tail(opts_fecha, 1)),
-  # bslib::input_task_button("hoy", "hoy"),
   actionButton("hoy", "Hoy", class = "btn-sm btn-primary", style = "font-size:80%", width = "30%"),
   radioGroupButtons(
-    inputId = "layer", label = "Mapa", choices = c("Potencial" = "shape", "Estrés" = "raster"),
+    inputId = "layer",
+    label = "Mapa",
+    choices = c("Estrés" = "nivel", "Potencial" = "shape", "Raster" = "raster"),
     justified = TRUE,
     size = "sm"
   )

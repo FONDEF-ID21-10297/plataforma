@@ -103,6 +103,12 @@ lbl_opts_style <- list(
   "border-color" = "rgba(0,0,0,0.15)"
 )
 
+highlight_opts <- highlightOptions(
+  color        = "white",
+  weight       = 5,
+  bringToFront = TRUE
+  )
+
 # sidebar -----------------------------------------------------------------
 opts_huertos <- huertos_gpks |>
   basename() |> 

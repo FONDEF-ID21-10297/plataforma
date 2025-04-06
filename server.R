@@ -252,6 +252,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           label            =  ~ str_glue("{sector} {equipo} Potencial {round(potencial,2)}"),
+          highlightOptions = highlight_opts,
           labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()
@@ -280,6 +281,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           label            =  ~ str_glue("{sector} {equipo} {nivel}"),
+          highlightOptions = highlight_opts,
           labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()
@@ -507,6 +509,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           label            =  ~ str_glue("{sector} {equipo} Potencial {round(potencial,2)}"),
+          highlightOptions = highlight_opts,
           labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()
@@ -535,6 +538,7 @@ function(input, output, session) {
           fillOpacity      = 0.7,
           layerId          = ~ id,
           label            =  ~ str_glue("{sector} {equipo} {nivel}"),
+          highlightOptions = highlight_opts,
           labelOptions = labelOptions(style = lbl_opts_style)
         ) |>
         identity()

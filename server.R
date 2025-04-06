@@ -104,10 +104,46 @@ function(input, output, session) {
       )
     
     data_rt_map <- rast(str_glue("https://github.com/FONDEF-ID21-10297/datos_plataforma_gha/raw/refs/heads/main/data/potencial-raster/{input$huerto}/{input$fecha}.tif"))
-  
+
+    # https://github.com/FONDEF-ID21-10297/plataforma/issues/16
+    fecha_anio_ant <- ymd(input$fecha) - years(1) 
+    fecha_anio_ant_5da <- fecha_anio_ant - days(4)
+    
+    eto <- data_clima_repo |> 
+      filter(site == unique(data_list$pt$site)) |> 
+      filter(between(date, ymd(input$fecha) - days(2), ymd(input$fecha))) |> 
+      arrange(desc(date)) |> 
+      pull(eto) |> 
+      na.omit() |> 
+      first() |> 
+      as.numeric()
+    
+    dEtc <- readRDS("data/ETc.rds")
+    driego <- dEtc |> 
+      filter(sitio == unique(data_list$pt$site)) |> 
+      group_by(sitio, fecha) |> 
+      summarise(Kc = mean(Kc), .groups = "drop") |> 
+      filter(between(fecha, fecha_anio_ant_5da, fecha_anio_ant)) |> 
+      arrange(desc(fecha)) |> 
+      mutate(
+        id = row_number(),
+        id = row_number(),
+        id_naranjo = ifelse(id <= 2, 1, 0),
+        id_rojo = ifelse(id <= 5, 1, 0),
+        riego_diario = eto * Kc
+      ) |> 
+      summarise(
+        min_riego_acumulado_naranjo = sum(riego_diario * id_naranjo)/2*60,
+        min_riego_acumulado_rojo = sum(riego_diario * id_rojo)/2*60
+      ) |> 
+      pivot_longer(cols = everything()) |> 
+      deframe() |> 
+      as.list()
+      
     data_list_fecha <- list(
       data_sf_map = data_sf_map,
-      data_rt_map = data_rt_map
+      data_rt_map = data_rt_map,
+      driego = driego
     )
 
     data_list_fecha
@@ -147,16 +183,17 @@ function(input, output, session) {
     vb1 <- value_box(
       theme = value_box_theme(bg = colors_lvl[1], fg = "white"),
       title = "Sectores sin estrés",
-      value = daux1$Bueno,
+      value = daux1$`Sin estrés`,
       # tags$small(daux2$bueno),
       showcase = bs_icon("droplet-fill", class = "text-primary")
     )
-
+    
     vb2 <- value_box(
       theme = value_box_theme(bg = colors_lvl[2], fg = "white"),
       title = "Sectores estrés moderado",
-      value = daux1$intermedio,
-      tags$small(daux2$intermedio),
+      value = daux1$Intermedio,
+      ifelse(daux1$Intermedio > 0, str_glue("{round(data_list_fecha$driego$min_riego_acumulado_naranjo)} min. riego cada sector"), ""),
+      # tags$small(daux2$Intermedio),
       showcase = bs_icon("droplet-half", class = "text-primary")
     )
 
@@ -165,8 +202,9 @@ function(input, output, session) {
     vb3 <- value_box(
       theme = value_box_theme(bg = colors_lvl[3], fg = "white"),
       title = "Sectores estrés severo",
-      value = daux1$malo, 
-      tags$small(daux2$malo),
+      value = daux1$Severo, 
+      ifelse(daux1$Severo > 0, str_glue("{round(data_list_fecha$driego$min_riego_acumulado_naranjo)} min. riego cada sector"), ""),
+      # tags$small(daux2$malo),
       showcase = bs_icon("droplet", class = "text-primary")
     )
     
@@ -276,7 +314,7 @@ function(input, output, session) {
     cli::cli_inform("output `potencial` - sector: {sector()}")
     
     data_list <- data_list()
-  
+    data_list_fecha <- data_list_fecha()
     # plotbands 
     pb <- list(
       list(
@@ -338,6 +376,15 @@ function(input, output, session) {
       ) |> 
       mutate(sector_equipo_lbl = sector_equipo_a_lbl(sector_equipo))
 
+    potencial_ultimo_dia <- daux_pt |> pull(potencial) |> last()
+    min_riego <- case_when(
+      potencial_ultimo_dia <= data_list$um$u_maximo  ~ data_list_fecha$driego$min_riego_acumulado_rojo,
+      potencial_ultimo_dia <= data_list$um$u_minimo  ~ data_list_fecha$driego$min_riego_acumulado_naranjo,
+      TRUE ~ NA
+    ) |> 
+      round()
+    texto_riego <- ifelse(!is.na(min_riego), str_glue(": {min_riego} minutos de riego"), "")
+
     axis[[3]]$tickPositioner = JS(
       "function(min,max){
                var data = this.chart.yAxis[0].series[0].processedYData;
@@ -363,15 +410,6 @@ function(input, output, session) {
         ) |> 
       rename(x = date, y = value)
     
-    # data riego 
-    # set.seed(fmax)
-    # daux_rg <- daux_pt |> 
-    #   select(name = sector_equipo_lbl, x = date) |> 
-    #   mutate(x = datetime_to_timestamp(x)) |> 
-    #   mutate(y = 100 * runif(n(), 0, 1) * rbinom(1, n = n(), p = 0.1)) |> 
-    #   filter(y > 0) |> 
-    #   mutate(name = str_glue("Riesgo en {name}"))
-    
     hchart(daux_pt, "line", hcaes(date, potencial, group = sector_equipo_lbl), animation = TRUE, lineWidth = 4) |> 
       hc_tooltip(sort = FALSE, table = TRUE, valueDecimals = 2) |> 
       hc_plotOptions(series = list(animation = FALSE)) |> 
@@ -379,7 +417,9 @@ function(input, output, session) {
       hc_add_series(daux_cl, type = "line", hcaes(x, y, group = name), yAxis = 1, lineWidth = 4) |> 
       # hc_add_series(daux_rg, type = "column", hcaes(x, y, group = name), yAxis = 1, color = "#ADD8E6", pointWidth = 10, stacking = 'normal') |> 
       hc_xAxis(title = list(text = "Fecha")) |> 
-      hc_subtitle(text = daux_pt |> distinct(sector_equipo_lbl) |> pull())
+      hc_subtitle(text = 
+        str_glue("{daux_pt |> distinct(sector_equipo_lbl) |> pull()} {texto_riego}")
+    )
     
   })
   
